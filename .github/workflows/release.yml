@@ -23,9 +23,9 @@ jobs:
         with:
           persist-credentials: false
 
-      # No actions/setup-node — using the runner's pre-installed Node.js avoids
-      # any npm cache poisoning risk in this publish workflow.
-      - run: npm ci --prefer-offline=false
+      # No actions/setup-node — skips the GitHub Actions npm cache, which is the
+      # cache-poisoning vector. npm ci still verifies the lockfile on every run.
+      - run: npm ci
 
       # TAG_REF via env avoids injection through a crafted tag name.
       - name: Verify version matches tag

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>phab-try Settings</title>
+  <style>
+    body   { font-family: system-ui, sans-serif; padding: 1.5em; max-width: 380px; }
+    h2     { margin-top: 0; }
+    label  { display: block; font-weight: bold; margin-bottom: 0.4em; }
+    input  { width: 100%; box-sizing: border-box; padding: 0.4em 0.5em; font-size: 1em; }
+    .hint  { font-size: 0.85em; color: #666; margin: 0.3em 0 0.9em; }
+    button { padding: 0.4em 1em; font-size: 1em; }
+    #status       { margin-top: 0.6em; font-size: 0.9em; min-height: 1.2em; }
+    #status.ok    { color: #2a7a2a; }
+    #status.error { color: #c00; }
+  </style>
+</head>
+<body>
+  <h2>phab-try</h2>
+  <label for="email">Your Treeherder / Bugzilla email address</label>
+  <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+  <p class="hint">
+    Used to search your try push history directly instead of scanning recent
+    pushes. Leave blank to auto-detect (slower for older pushes).
+  </p>
+  <button id="save">Save</button>
+  <p id="status"></p>
+  <script src="options.js"></script>
+</body>
+</html>

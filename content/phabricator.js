@@ -20,17 +20,20 @@
     return null;
   }
 
-  // Returns username@mozilla.com as a search hint; background auto-discovers
-  // the real email from Treeherder, so this only speeds up deep-history lookups.
+  // Returns username@mozilla.com as a search hint for Mozilla staff.
+  // The background uses a stored email first (extension settings), then this hint,
+  // then auto-discovers the real email from Treeherder push.author data.
+  const AUTHOR_HINT_MAX_DEPTH   = 4;    // ancestors to walk up from each /p/ link
+  const AUTHOR_HINT_MAX_TEXT    = 400;  // skip large nodes unlikely to be the author row
+
   function getAuthorHint() {
     for (const link of document.querySelectorAll("a[href^='/p/']")) {
       const m = link.getAttribute("href").match(/^\/p\/([^/]+)\//);
       if (!m) continue;
       let node = link.parentElement;
-      for (let depth = 0; depth < 4 && node && node !== document.body; depth++) {
-        if (node.textContent.length < 400 && /\bauthor/i.test(node.textContent)) {
+      for (let depth = 0; depth < AUTHOR_HINT_MAX_DEPTH && node && node !== document.body; depth++) {
+        if (node.textContent.length < AUTHOR_HINT_MAX_TEXT && /\bauthor/i.test(node.textContent))
           return `${m[1]}@mozilla.com`;
-        }
         node = node.parentElement;
       }
     }
@@ -57,7 +60,7 @@
     if (!dNumber) return;
     const author = getAuthorHint();
     initTryPanel(
-      { dNumber, bugNumber: getBugNumber(), ...(author ? { author } : {}) },
+      { dNumber, bugNumber: getBugNumber(), ...(author && { author }) },
       findInsertionPoint,
     );
   }

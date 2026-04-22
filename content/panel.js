@@ -1,4 +1,5 @@
 // Globals exported: ptCreatePanel, ptStartAutoRefresh, ptIsRunning
+//                   ptEl, ptWithAction, ptShortRev, ptMetrics, ptStatusSummary, ptResolveMetricResult, ptNoTryPushesMsg
 
 (function () {
   "use strict";
@@ -13,8 +14,15 @@
   }
 
   function nest(parent, ...children) {
-    children.forEach(c => parent.appendChild(c));
+    parent.append(...children);
     return parent;
+  }
+
+  // Sets href="#" and attaches a click handler that calls fn() without navigating.
+  function withAction(node, fn) {
+    node.href = "#";
+    node.addEventListener("click", e => { e.preventDefault(); fn(); });
+    return node;
   }
 
   // visual-only + aria-hidden: Phabricator's decorative icon convention.
@@ -48,8 +56,7 @@
     print.setAttribute("aria-hidden", "true");
 
     const frag = document.createDocumentFragment();
-    frag.appendChild(screen);
-    frag.appendChild(print);
+    frag.append(screen, print);
     return frag;
   }
 
@@ -60,12 +67,11 @@
     const s = health.status;
     const total = (s.completed || 0) + (s.pending || 0) + (s.running || 0);
     const parts = [];
-    if (total)        parts.push(`${s.completed || 0}/${total} completed`);
-    if (s.testfailed) parts.push(`${s.testfailed} failed`);
-    if (s.busted)     parts.push(`${s.busted} busted`);
-    if (s.exception)  parts.push(`${s.exception} exception`);
-    if (s.running)    parts.push(`${s.running} running`);
-    if (s.pending)    parts.push(`${s.pending} pending`);
+    if (total) parts.push(`${s.completed || 0}/${total} completed`);
+    for (const [key, label] of [
+      ["testfailed", "failed"], ["busted", "busted"],
+      ["exception", "exception"], ["running", "running"], ["pending", "pending"],
+    ]) if (s[key]) parts.push(`${s[key]} ${label}`);
     return parts.join(", ") || null;
   }
 
@@ -77,8 +83,6 @@
   function titleFor(pushes) {
     return `Try Pushes (${pushes.length})`;
   }
-
-  function clearEl(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
   // --- Status badge ---
 
@@ -105,10 +109,20 @@
     //   phui-tag-slim (compact) + phui-tag-icon-view (has an icon)
     badge.className = `pt-push-badge phui-tag-view phui-tag-type-shade ${style.tagCls} phui-tag-shade phui-tag-slim phui-tag-icon-view`;
     const core = el("span", "phui-tag-core phui-tag-name");
-    core.appendChild(faIcon(`${style.fa} ${style.iconCls}`));
-    core.appendChild(document.createTextNode("\u00a0" + label));
-    badge.appendChild(core);
+    core.append(faIcon(`${style.fa} ${style.iconCls}`), `\u00a0${label}`);
+    badge.append(core);
     return badge;
+  }
+
+  // Resolves the result for a single metric, including decision-task failure detection:
+  // when all metrics are "none" but busted/exception jobs exist, builds → "fail".
+  function resolveMetricResult(push, key) {
+    const m = push.health?.metrics ?? {};
+    const s = push.health?.status;
+    const allNone = METRICS.every(([, k]) => !m[k]?.result || m[k].result === "none");
+    const hasFailed = allNone && s &&
+      ((s.busted || 0) + (s.exception || 0) + (s.testfailed || 0)) > 0;
+    return (hasFailed && key === "builds") ? "fail" : (m[key]?.result ?? null);
   }
 
   // --- Push row ---
@@ -128,20 +142,12 @@
     hashLink.rel    = "noopener noreferrer";
     const hashWrap = nest(el("span", "pt-push-hash"), hashLink);
 
-    // Detect decision-task failure: all metrics "none" but busted/exception jobs present.
-    const m = push.health?.metrics ?? {};
-    const s = push.health?.status;
-    const allNone = METRICS.every(([, key]) => !m[key]?.result || m[key].result === "none");
-    const hasFailed = allNone && s &&
-      ((s.busted || 0) + (s.exception || 0) + (s.testfailed || 0)) > 0;
-
     const row = nest(el("div", "pt-push-row"), timeSpan, hashWrap,
-      ...METRICS.map(([label, key]) =>
-        createBadge(label, hasFailed && key === "builds" ? "fail" : m[key]?.result)));
-    item.appendChild(row);
+      ...METRICS.map(([label, key]) => createBadge(label, resolveMetricResult(push, key))));
+    item.append(row);
 
     const summary = statusSummary(push.health);
-    if (summary) item.appendChild(el("div", "pt-push-note greytext", summary));
+    if (summary) item.append(el("div", "pt-push-note greytext", summary));
 
     return item;
   }
@@ -154,12 +160,10 @@
 
     const titleText = el("span", "pt-panel-title-text", "Try Pushes");
 
-    const reloadLink = el("a", "phui-header-action-link");
-    reloadLink.href = "#";
-    reloadLink.addEventListener("click", e => { e.preventDefault(); onReload(); });
+    const reloadLink = withAction(el("a", "phui-header-action-link"), onReload);
     nest(reloadLink, faIcon("fa-refresh"), document.createTextNode(" Reload"));
 
-    panel.appendChild(
+    panel.append(
       nest(el("div", "phui-header-shell"),
         nest(el("h1", "phui-header-view"),
           nest(el("div", "phui-header-row"),
@@ -169,7 +173,7 @@
     );
 
     const list = el("div", "pt-push-list");
-    panel.appendChild(
+    panel.append(
       nest(el("div", "phui-property-list-section"),
         nest(el("div", "phui-property-list-container grouped"),
           nest(el("div", "phui-property-list-properties-wrap"), list)))
@@ -181,10 +185,8 @@
   // --- State rows ---
 
   function stateRow(list, text, cls) {
-    clearEl(list);
-    const msg = el("div", cls);
-    msg.textContent = text;
-    list.appendChild(msg);
+    const msg = el("div", cls, text);
+    list.replaceChildren(msg);
     return msg;
   }
 
@@ -195,32 +197,40 @@
   window.ptCreatePanel = function (onReload) {
     const { panel, list, setTitle } = buildShell(onReload);
 
+    const resetTitle = () => setTitle("Try Pushes");
+
     function setLoading(message) {
-      setTitle("Try Pushes");
+      resetTitle();
       stateRow(list, message, "greytext pt-state-loading");
     }
 
     function setError(message) {
-      setTitle("Try Pushes");
+      resetTitle();
       const msg = stateRow(list, message, "red pt-state-error");
-      const retry = el("a", null, " Retry");
-      retry.href = "#";
-      retry.addEventListener("click", e => { e.preventDefault(); onReload(); });
-      msg.appendChild(retry);
+      msg.append(withAction(el("a", null, " Retry"), onReload));
     }
 
     function setPushes(pushes) {
-      clearEl(list);
       setTitle(titleFor(pushes));
       if (pushes.length)
-        for (const push of pushes) list.appendChild(buildPushRow(push));
-      else stateRow(list, "No try pushes found for this revision.", "greytext pt-state-error");
+        list.replaceChildren(...pushes.map(buildPushRow));
+      else stateRow(list, window.ptNoTryPushesMsg, "greytext pt-state-error");
     }
 
     const ctrl = { el: panel, setLoading, setError, setPushes };
+    panel.dataset.ptPanel = "1";
     panel._ptCtrl = ctrl;  // lets updatePanel reach the controller without re-querying the DOM
     return ctrl;
   };
+
+  // Shared utilities for bugzilla-panel.js
+  window.ptEl                  = el;
+  window.ptWithAction          = withAction;
+  window.ptShortRev            = shortRev;
+  window.ptNoTryPushesMsg      = "No try pushes found for this revision.";
+  window.ptMetrics             = METRICS;
+  window.ptStatusSummary       = statusSummary;
+  window.ptResolveMetricResult = resolveMetricResult;
 
   function updatePanel(panelEl, pushes) {
     panelEl._ptCtrl?.setPushes(pushes);
@@ -228,14 +238,17 @@
 
   window.ptStartAutoRefresh = function (panelEl, msgPayload, fetchFn) {
     let handle = null;
+    let stopped = false;
     async function tick() {
+      if (!document.contains(panelEl)) { stop(); return; }
       try {
         const pushes = await fetchFn(msgPayload, true);
+        if (stopped) return;   // reload() fired while we were awaiting — discard result
         updatePanel(panelEl, pushes);
         if (pushes.every(p => !isRunning(p))) stop();
       } catch (e) { console.warn("[phab-try] auto-refresh failed", e); }
     }
-    function stop() { clearInterval(handle); handle = null; }
+    function stop() { stopped = true; clearInterval(handle); handle = null; }
     handle = setInterval(tick, 60_000);
     return stop;
   };

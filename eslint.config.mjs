@@ -37,6 +37,25 @@ export default [
     },
   },
 
+  // Extension options page — classic script, browser + WebExtensions environment
+  {
+    files: ["options.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: {
+        ...globals.browser,
+        browser: "readonly",
+      },
+    },
+    rules: {
+      "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
+      "no-undef": "error",
+      "no-var": "error",
+      "prefer-const": "error",
+    },
+  },
+
   // Dev/tooling scripts — ES modules, Node.js environment
   {
     files: ["*.mjs"],
