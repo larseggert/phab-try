@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "phab-try",
+  "version": "0.1.0",
+  "description": "Surfaces Treeherder try push status on Phabricator and Bugzilla pages.",
+  "host_permissions": [
+    "https://treeherder.mozilla.org/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://phabricator.services.mozilla.com/D*"],
+      "js": ["content/panel.js", "content/panel-controller.js", "content/phabricator.js"],
+      "css": ["content/panel.css"]
+    },
+    {
+      "matches": ["https://bugzilla.mozilla.org/show_bug.cgi*"],
+      "js": ["content/panel.js", "content/panel-controller.js", "content/bugzilla.js"],
+      "css": ["content/panel.css"]
+    }
+  ],
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png"
+  }
+}
