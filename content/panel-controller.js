@@ -1,13 +1,6 @@
-/**
- * Shared panel lifecycle for phab-try content scripts.
- *
- * initTryPanel(payload, findAnchor)
- *   payload    – getTryPushes message object { dNumber, bugNumber, author? }
- *   findAnchor – function() → Element|null  (panel is inserted before this element)
- *
- * onDOMReady(fn) – calls fn now or after DOMContentLoaded; used by both
- *   content scripts to avoid duplicating the readyState guard.
- */
+// initTryPanel(payload, findAnchor) — shared by phabricator.js and bugzilla.js
+// onDOMReady(fn)                    — DOMContentLoaded guard, also shared
+/* exported onDOMReady, initTryPanel */
 "use strict";
 
 function onDOMReady(fn) {
@@ -27,7 +20,6 @@ function initTryPanel(payload, findAnchor) {
   }
 
   let stopRefresh = null;
-  let ctrl;
 
   function reload() {
     if (stopRefresh) { stopRefresh(); stopRefresh = null; }
@@ -35,11 +27,9 @@ function initTryPanel(payload, findAnchor) {
     load(true);
   }
 
-  ctrl = window.ptCreatePanel(reload);
+  const ctrl = window.ptCreatePanel(reload);
   ctrl.setLoading(LOADING_MSG);
 
-  // Insert before the anchor (e.g. the Details box on Phabricator, the
-  // comments section on Bugzilla), or prepend to body as a fallback.
   const anchor = findAnchor();
   if (anchor?.parentNode) {
     anchor.parentNode.insertBefore(ctrl.el, anchor);

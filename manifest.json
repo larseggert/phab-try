@@ -3,6 +3,12 @@
   "name": "phab-try",
   "version": "0.1.0",
   "description": "Surfaces Treeherder try push status on Phabricator and Bugzilla pages.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "phab-try@lars.eggert.org",
+      "strict_min_version": "109.0"
+    }
+  },
   "host_permissions": [
     "https://treeherder.mozilla.org/*"
   ],
@@ -22,7 +28,8 @@
     }
   ],
   "icons": {
-    "48": "icons/icon-48.png",
-    "96": "icons/icon-96.png"
+    "48":  "icons/icon-48.png",
+    "96":  "icons/icon-96.png",
+    "128": "icons/icon-128.png"
   }
 }

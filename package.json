@@ -1,0 +1,20 @@
+{
+  "name": "phab-try",
+  "version": "0.1.0",
+  "description": "Surfaces Treeherder try push status on Phabricator and Bugzilla pages.",
+  "private": true,
+  "scripts": {
+    "generate-icons": "node generate-icons.mjs",
+    "lint:js":        "eslint background.js content/",
+    "lint:ext":       "web-ext lint",
+    "lint":           "npm run lint:js && npm run lint:ext",
+    "build":          "web-ext build",
+    "sign":           "web-ext sign --channel=unlisted"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.0",
+    "eslint":          "^9.0.0",
+    "globals":         "^15.0.0",
+    "web-ext":         "^8.0.0"
+  }
+}

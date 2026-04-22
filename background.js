@@ -1,14 +1,5 @@
-/**
- * Background service worker (Firefox MV3 non-persistent background page).
- * Handles Treeherder API requests on behalf of content scripts to avoid CORS issues.
- */
-
 const TREEHERDER_BASE = "https://treeherder.mozilla.org";
 
-/**
- * Fetch try pushes. Pass { author } for a targeted author query (default 500
- * pushes) or just { count } for a broad recent-push query.
- */
 async function fetchTryPushes({ author, count } = {}) {
   const params = new URLSearchParams({ count: count ?? (author ? 500 : 200) });
   if (author) params.set("author", author);
@@ -103,14 +94,11 @@ browser.runtime.onMessage.addListener((msg, _sender) => {
     let allMatches;
 
     if (author) {
-      // Targeted author search covers the author's full push history.
       allMatches = filterPushes(await fetchTryPushes({ author }), dNumber, bugNumber);
     } else {
-      // Broad search over recent pushes; filter out bots (no @ in push.author).
       const recentMatches = filterPushes(await fetchTryPushes({ count: 200 }), dNumber, bugNumber)
         .filter(p => p.author?.includes("@"));
 
-      // If we found a real email, run a full targeted search for complete history.
       const realEmail = recentMatches[0]?.author;
       allMatches = realEmail
         ? mergePushes(
