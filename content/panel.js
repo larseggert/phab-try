@@ -1,18 +1,10 @@
-/**
- * Shared panel UI for phab-try.
- *
- * Mirrors the exact HTML structure of the "Details" box on Phabricator
- * differential pages so all visual styling is inherited automatically.
- *
- * Globals exported: ptCreatePanel, ptStartAutoRefresh, ptIsRunning
- */
+// Globals exported: ptCreatePanel, ptStartAutoRefresh, ptIsRunning
 
 (function () {
   "use strict";
 
   // --- DOM helpers ---
 
-  /** Concise element factory. */
   function el(tag, cls, text) {
     const node = document.createElement(tag);
     if (cls)  node.className   = cls;
@@ -20,18 +12,12 @@
     return node;
   }
 
-  /** Append children to parent and return parent. */
   function nest(parent, ...children) {
     children.forEach(c => parent.appendChild(c));
     return parent;
   }
 
-  /**
-   * Decorative FontAwesome icon span using Phabricator's classes.
-   * `visual-only` follows the same pattern Phabricator uses throughout its UI;
-   * `aria-hidden="true"` hides it from screen readers (surrounding text provides
-   * the accessible label).
-   */
+  // visual-only + aria-hidden: Phabricator's decorative icon convention.
   function faIcon(faClass) {
     const icon = el("span", `visual-only phui-icon-view phui-font-fa ${faClass}`);
     icon.setAttribute("aria-hidden", "true");
@@ -40,12 +26,7 @@
 
   // --- Data helpers ---
 
-  /**
-   * Build a timestamp element matching Phabricator's screen-only / print-only
-   * pattern from the timeline:
-   *   <span class="screen-only">Tue, Apr 14, 12:12</span>
-   *   <span class="print-only" aria-hidden="true">2026-04-14 12:12:17 (UTC+3)</span>
-   */
+  // screen-only/print-only mirrors Phabricator's timeline timestamp pattern.
   function buildTimestamp(epochSecs) {
     const d = new Date(epochSecs * 1000);
 
@@ -93,7 +74,6 @@
     return s && (s.pending || 0) + (s.running || 0) > 0;
   }
 
-  /** Panel title including count, e.g. "Try Pushes (5)" or "Try Pushes (0)". */
   function titleFor(pushes) {
     return `Try Pushes (${pushes.length})`;
   }
@@ -113,7 +93,6 @@
     pending: { fa: "fa-circle-o",      tagCls: "phui-tag-grey",   iconCls: "grey"   },
   };
 
-  // The three Treeherder metric keys and their display labels, in column order.
   const METRICS = [["Builds", "builds"], ["Lint", "linting"], ["Tests", "tests"]];
 
   function createBadge(label, result) {
@@ -156,7 +135,6 @@
     const hasFailed = allNone && s &&
       ((s.busted || 0) + (s.exception || 0) + (s.testfailed || 0)) > 0;
 
-    // Single flex row: [timestamp] [hash] [Builds] [Lint] [Tests]
     const row = nest(el("div", "pt-push-row"), timeSpan, hashWrap,
       ...METRICS.map(([label, key]) =>
         createBadge(label, hasFailed && key === "builds" ? "fail" : m[key]?.result)));
@@ -174,7 +152,6 @@
     const panel = el("div",
       "phui-box phui-box-border phui-object-box mlt mll mlr phui-box-blue-property pt-try-panel");
 
-    // Header — identical structure to Phabricator's "Details" box
     const titleText = el("span", "pt-panel-title-text", "Try Pushes");
 
     const reloadLink = el("a", "phui-header-action-link");
@@ -191,7 +168,6 @@
             nest(el("div", "phui-header-col3"), reloadLink))))
     );
 
-    // Same nested wrapper structure as the Details box: section → container → wrap
     const list = el("div", "pt-push-list");
     panel.appendChild(
       nest(el("div", "phui-property-list-section"),
@@ -241,15 +217,11 @@
       else stateRow(list, "No try pushes found for this revision.", "greytext pt-state-error");
     }
 
-    // Store controller on the element so updatePanel can delegate without
-    // querying the DOM or duplicating the title/repopulate logic.
     const ctrl = { el: panel, setLoading, setError, setPushes };
-    panel._ptCtrl = ctrl;
-    // Caller (panel-controller.js) sets the initial loading message.
+    panel._ptCtrl = ctrl;  // lets updatePanel reach the controller without re-querying the DOM
     return ctrl;
   };
 
-  // Delegates to the stored controller — no DOM querying or duplicated logic.
   function updatePanel(panelEl, pushes) {
     panelEl._ptCtrl?.setPushes(pushes);
   }

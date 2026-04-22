@@ -20,16 +20,8 @@
     return null;
   }
 
-  /**
-   * Extract the revision author's Phabricator username and return
-   * "username@mozilla.com" as a hint for the Treeherder author query.
-   *
-   * Phabricator renders "(authored by <a href='/p/username/'>…)" in the
-   * timeline — we walk up from each /p/ link checking ancestors for the
-   * word "author". The background script also auto-discovers the real email
-   * from Treeherder push.author data, so this is just an optimisation for
-   * pushes older than the 200-push broad-search window.
-   */
+  // Returns username@mozilla.com as a search hint; background auto-discovers
+  // the real email from Treeherder, so this only speeds up deep-history lookups.
   function getAuthorHint() {
     for (const link of document.querySelectorAll("a[href^='/p/']")) {
       const m = link.getAttribute("href").match(/^\/p\/([^/]+)\//);
@@ -45,10 +37,6 @@
     return null;
   }
 
-  /**
-   * Return the Details phui-box so the panel is inserted before it,
-   * making it the first panel on the page.
-   */
   function findInsertionPoint() {
     for (const key of document.querySelectorAll(".phui-property-list-key")) {
       if (!/\bAuthor\b/i.test(key.textContent)) continue;

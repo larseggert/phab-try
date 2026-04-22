@@ -1,31 +1,25 @@
 /* phab-try — structural layout only; all visual styling from Phabricator's classes */
 
-/* Bottom gap so the Details panel is not flush against ours */
 .pt-try-panel { margin-bottom: 8px; }
 
 /* Prevent the phui-property-list-section wrapper from shrinking our font */
 .pt-try-panel .phui-property-list-section { font-size: inherit; }
 
-/* Push rows container */
 .pt-push-list { padding: 6px 16px; }
 
-/* One row per push */
 .pt-push-item { margin-bottom: 8px; }
 .pt-push-item:last-child { margin-bottom: 0; }
 
-/* Single flex row: timestamp and hash are siblings so align-items works on both */
 .pt-push-row   { display: flex; align-items: center; gap: 10px; }
 
 /* Timestamp column — greytext provides the colour; reset padding/margin that
    phui-property-list-key adds for its <dt>/float-list context */
 .pt-push-time  { flex: 0 0 140px; text-align: right; padding: 0 !important; margin: 0 !important; }
 
-/* Hash link and badge columns */
 .pt-push-hash      { flex: 0 0 72px; display: flex; align-items: center; }
 .pt-push-hash > a  { font-family: monospace; }
 .pt-push-badge { flex: 0 0 88px; }
 
-/* Job count note — indented past the timestamp column (140px) + row gap (10px) */
 .pt-push-note { margin-top: 2px; padding-left: calc(140px + 10px); }
 
 /* State rows — greytext/red provide colour via Phabricator utility classes */

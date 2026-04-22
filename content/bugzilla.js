@@ -13,7 +13,6 @@
     return m ? m[1] : null;
   }
 
-  /** Extract the assignee email from the Bugzilla DOM. */
   function getAssigneeEmail() {
     const candidates = [
       document.querySelector("#assigned_to_input"),
