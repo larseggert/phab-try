@@ -1,20 +1,22 @@
 const TREEHERDER_BASE = "https://treeherder.mozilla.org";
 
+async function fetchJson(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Fetch failed: ${resp.status} (${url})`);
+  return resp.json();
+}
+
 async function fetchTryPushes({ author, count } = {}) {
   const params = new URLSearchParams({ count: count ?? (author ? 500 : 200) });
   if (author) params.set("author", author);
-  const resp = await fetch(`${TREEHERDER_BASE}/api/project/try/push/?${params}`);
-  if (!resp.ok) throw new Error(`Treeherder fetch failed: ${resp.status}`);
-  return (await resp.json()).results ?? [];
+  return (await fetchJson(`${TREEHERDER_BASE}/api/project/try/push/?${params}`)).results ?? [];
 }
 
 async function fetchPushHealthSummary(revision) {
-  const resp = await fetch(
+  // Endpoint returns an array; take the first element
+  const data = await fetchJson(
     `${TREEHERDER_BASE}/api/project/try/push/health_summary/?revision=${revision}`
   );
-  if (!resp.ok) throw new Error(`Health fetch failed: ${resp.status}`);
-  const data = await resp.json();
-  // Endpoint returns an array; take the first element
   return (Array.isArray(data) ? data[0] : data) ?? null;
 }
 
@@ -60,70 +62,97 @@ async function mapCapped(items, fn, cap = 5) {
   const results = [];
   let i = 0;
   async function next() {
-    while (i < items.length) { const idx = i++; results[idx] = await fn(items[idx]); }
+    while (i < items.length) {
+      const idx = i++;
+      try { results[idx] = await fn(items[idx]); } catch (_e) { /* skip failed items */ }
+    }
   }
   await Promise.all(Array.from({ length: Math.min(cap, items.length) }, next));
-  return results;
+  return results.filter(r => r !== undefined);
 }
 
 // --- Push merging ---
 
 function mergePushes(...arrays) {
   const seen = new Set();
-  const merged = [];
-  for (const arr of arrays)
-    for (const p of arr)
-      if (!seen.has(p.id)) { seen.add(p.id); merged.push(p); }
-  return merged;
+  return arrays.flat().filter(p => !seen.has(p.id) && seen.add(p.id));
+}
+
+// --- Stored settings ---
+
+async function getStoredEmail() {
+  try {
+    const { email } = await browser.storage.sync.get("email");
+    return email || null;
+  } catch (_e) {
+    return null;
+  }
 }
 
 // --- Message handler ---
+
+// Deduplicates concurrent requests for the same key so multiple open tabs
+// sharing the same revision don't each fire independent Treeherder fetches.
+const inFlight = new Map();
+
+async function doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey) {
+  let allMatches;
+
+  if (effectiveAuthor) {
+    allMatches = filterPushes(await fetchTryPushes({ author: effectiveAuthor }), dNumber, bugNumber);
+  } else {
+    const recentMatches = filterPushes(await fetchTryPushes({ count: 200 }), dNumber, bugNumber)
+      .filter(p => p.author?.includes("@"));
+
+    const realEmail = recentMatches[0]?.author;
+    allMatches = realEmail
+      ? mergePushes(
+          filterPushes(await fetchTryPushes({ author: realEmail }), dNumber, bugNumber),
+          recentMatches)
+      : recentMatches;
+  }
+
+  allMatches.sort((a, b) => b.push_timestamp - a.push_timestamp);
+
+  const enriched = await mapCapped(allMatches, async push => {
+    let health = null;
+    try { health = await fetchPushHealthSummary(push.revision); } catch (_e) { /* skip */ }
+    return {
+      id: push.id,
+      revision: push.revision,
+      push_timestamp: push.push_timestamp,
+      author: push.author,
+      treeherder_url: `https://treeherder.mozilla.org/jobs?repo=try&revision=${push.revision}`,
+      health,
+    };
+  }, 5);
+
+  cacheSet(cacheKey, enriched);
+  return { pushes: enriched };
+}
 
 browser.runtime.onMessage.addListener((msg, _sender) => {
   if (msg.type !== "getTryPushes") return;
 
   const { author, dNumber, bugNumber, force } = msg;
-  const cacheKey = `${author ?? ""}:${dNumber ?? ""}:${bugNumber ?? ""}`;
-
-  if (!force) {
-    const cached = cacheGet(cacheKey);
-    if (cached) return Promise.resolve({ pushes: cached });
-  }
 
   return (async () => {
-    let allMatches;
+    // Stored email (user setting) takes precedence over any content-script hint.
+    const effectiveAuthor = (await getStoredEmail()) || author || null;
+    const cacheKey = `${effectiveAuthor ?? ""}:${dNumber ?? ""}:${bugNumber ?? ""}`;
 
-    if (author) {
-      allMatches = filterPushes(await fetchTryPushes({ author }), dNumber, bugNumber);
-    } else {
-      const recentMatches = filterPushes(await fetchTryPushes({ count: 200 }), dNumber, bugNumber)
-        .filter(p => p.author?.includes("@"));
-
-      const realEmail = recentMatches[0]?.author;
-      allMatches = realEmail
-        ? mergePushes(
-            filterPushes(await fetchTryPushes({ author: realEmail }), dNumber, bugNumber),
-            recentMatches)
-        : recentMatches;
+    if (!force) {
+      const cached = cacheGet(cacheKey);
+      if (cached) return { pushes: cached };
     }
 
-    allMatches.sort((a, b) => b.push_timestamp - a.push_timestamp);
+    // Reuse an in-flight request for the same key rather than firing duplicates
+    // (e.g. multiple tabs open for the same revision, or concurrent auto-refresh).
+    if (inFlight.has(cacheKey)) return inFlight.get(cacheKey);
 
-    const enriched = await mapCapped(allMatches, async push => {
-      let health = null;
-      try { health = await fetchPushHealthSummary(push.revision); } catch (_e) { /* skip */ }
-
-      return {
-        id: push.id,
-        revision: push.revision,
-        push_timestamp: push.push_timestamp,
-        author: push.author,
-        treeherder_url: `https://treeherder.mozilla.org/jobs?repo=try&revision=${push.revision}`,
-        health,
-      };
-    }, 5);
-
-    cacheSet(cacheKey, enriched);
-    return { pushes: enriched };
+    const promise = doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey);
+    inFlight.set(cacheKey, promise);
+    promise.finally(() => inFlight.delete(cacheKey));
+    return promise;
   })();
 });

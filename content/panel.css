@@ -25,3 +25,36 @@
 /* State rows — greytext/red provide colour via Phabricator utility classes */
 .pt-state-loading { font-style: italic; padding: 4px 0; }
 .pt-state-error   { padding: 4px 0; }
+
+/* Bugzilla panel overrides — all scoped under the module ID */
+#module-try-pushes {
+  .module-header { display: flex; }   /* reload button on the right */
+  .module-latch  { flex: 1; }
+
+  /* Push table */
+  .layout-table    { width: 100%; border-collapse: collapse; }
+  .layout-table td { padding-block: 4px; }
+
+  /* Table cells */
+  .pt-bz-time   { white-space: nowrap; padding-right: 1em; }
+  .pt-bz-hash   { padding-right: 1em; }
+  .pt-bz-hash a { font-family: monospace; }
+  .pt-bz-metric { white-space: nowrap; padding-right: 0.75em; }
+  .pt-bz-note   { color: #666; }
+
+  /* Reload button */
+  .pt-bz-reload { padding: 0 12px; align-self: center; color: inherit; opacity: 0.8; white-space: nowrap; }
+
+  /* State message paragraphs */
+  .pt-bz-msg         { padding: 8px; margin: 0; }
+  .pt-bz-msg-loading { color: #666; font-style: italic; }
+  .pt-bz-msg-error   { color: #c00; }
+  .pt-bz-msg-empty   { color: #666; }
+
+  /* Fixed-width icons so all badges are the same size; custom glyphs for CI status */
+  span[class^="revision-status-icon-"]::before { width: 1em; text-align: center; }
+  .revision-status-icon-accepted::before       { content: "\f058"; } /* fa-check-circle */
+  .revision-status-icon-needs-revision::before { content: "\f057"; } /* fa-times-circle */
+  .revision-status-icon-needs-review::before   { content: "\f021"; } /* fa-refresh      */
+  .revision-status-icon-abandoned::before      { content: "\f10c"; } /* fa-circle-o     */
+}

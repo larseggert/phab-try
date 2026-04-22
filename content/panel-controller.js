@@ -11,7 +11,8 @@ function onDOMReady(fn) {
   }
 }
 
-function initTryPanel(payload, findAnchor) {
+function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) {
+  if (document.querySelector("[data-pt-panel]")) return;  // already injected
   const LOADING_MSG = "Searching last 500 try pushes\u2026";
 
   async function fetchPushes(pl, force = false) {
@@ -20,14 +21,17 @@ function initTryPanel(payload, findAnchor) {
   }
 
   let stopRefresh = null;
+  let generation  = 0;
 
   function reload() {
-    if (stopRefresh) { stopRefresh(); stopRefresh = null; }
+    stopRefresh?.();
+    stopRefresh = null;
+    generation++;
     ctrl.setLoading(LOADING_MSG);
     load(true);
   }
 
-  const ctrl = window.ptCreatePanel(reload);
+  const ctrl = panelFactory(reload);
   ctrl.setLoading(LOADING_MSG);
 
   const anchor = findAnchor();
@@ -38,13 +42,16 @@ function initTryPanel(payload, findAnchor) {
   }
 
   async function load(force = false) {
+    const myGen = generation;
     try {
       const pushes = await fetchPushes(payload, force);
+      if (myGen !== generation) return;  // superseded by a later reload()
       ctrl.setPushes(pushes);
       if (pushes.some(window.ptIsRunning) && !stopRefresh) {
         stopRefresh = window.ptStartAutoRefresh(ctrl.el, payload, fetchPushes);
       }
     } catch (err) {
+      if (myGen !== generation) return;
       ctrl.setError(`Failed to fetch try push data. (${err.message})`);
       console.error("[phab-try]", err);
     }
