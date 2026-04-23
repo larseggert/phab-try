@@ -7,9 +7,10 @@ async function fetchJson(url) {
   return resp.json();
 }
 
-async function fetchTryPushes({ author, count } = {}) {
-  const params = new URLSearchParams({ count: count ?? (author ? 500 : 200) });
+async function fetchTryPushes({ author, count, since } = {}) {
+  const params = new URLSearchParams({ count: count ?? (author ? 1000 : 200) });
   if (author) params.set("author", author);
+  if (since)  params.set("push_timestamp__gt", since);
   return (await fetchJson(`${TREEHERDER_BASE}/api/project/try/push/?${params}`)).results ?? [];
 }
 
@@ -58,6 +59,34 @@ function cacheSet(key, value) {
   cache.set(key, { ts: Date.now(), value });
 }
 
+// --- Persistent author-push store ---
+// Keeps the full author push list in browser.storage.local so it survives
+// browser restarts and accumulates history beyond the per-request fetch limit.
+// On first use it fetches up to 1000 pushes; subsequent calls only fetch
+// pushes since the last successful fetch (with a 1-hour overlap for safety).
+
+async function getAuthorPushes(author) {
+  const key = `push-store:${author}`;
+  const nowSecs = Math.floor(Date.now() / 1000);
+
+  let stored = null;
+  try { stored = (await browser.storage.local.get(key))[key] ?? null; }
+  catch (_e) {}
+
+  // Fetch only pushes since the last successful fetch (minus a 1-hour buffer).
+  // On first use, fetch up to 1000 to maximise initial history.
+  const fresh = await fetchTryPushes(
+    stored
+      ? { author, count: 200, since: stored.fetchedAt - 3600 }
+      : { author, count: 1000 }
+  );
+
+  const all = mergePushes(fresh, stored?.pushes ?? []);
+  try { await browser.storage.local.set({ [key]: { pushes: all, fetchedAt: nowSecs } }); }
+  catch (_e) { /* quota exceeded or storage unavailable */ }
+  return all;
+}
+
 // --- Concurrency helper ---
 
 async function mapCapped(items, fn, cap = 5) {
@@ -85,9 +114,12 @@ async function fetchHgRevMeta(revision) {
   return { desc: data?.desc ?? "", parents: data?.parents ?? [] };
 }
 
-async function findMatchesByParentCommit(pushes, dNumber) {
+async function findMatchesByParentCommit(pushes, dNumber, exclude = new Set()) {
   const needle = phabNeedle(dNumber);
-  const recent = pushes.toSorted((a, b) => b.push_timestamp - a.push_timestamp).slice(0, 10);
+  const recent = pushes
+    .toSorted((a, b) => b.push_timestamp - a.push_timestamp)
+    .filter(p => !exclude.has(p.id))
+    .slice(0, 10);
   return mapCapped(recent, async push => {
     const { parents } = await fetchHgRevMeta(push.revision);
     const desc = parents[0] && (await fetchHgRevMeta(parents[0])).desc;
@@ -120,29 +152,26 @@ async function getStoredEmail() {
 const inFlight = new Map();
 
 async function doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey) {
-  let allMatches;
-  let authorPushes;  // kept for the hg parent-commit fallback below
+  let allMatches, authorPushes;
 
   if (effectiveAuthor) {
-    authorPushes = await fetchTryPushes({ author: effectiveAuthor });
+    authorPushes = await getAuthorPushes(effectiveAuthor);
     allMatches = filterPushes(authorPushes, dNumber, bugNumber);
   } else {
     const recentMatches = filterPushes(await fetchTryPushes({ count: 200 }), dNumber, bugNumber)
       .filter(p => p.author?.includes("@"));
 
     const realEmail = recentMatches[0]?.author;
+    if (realEmail) authorPushes = await getAuthorPushes(realEmail);
     allMatches = realEmail
-      ? mergePushes(
-          filterPushes(await fetchTryPushes({ author: realEmail }), dNumber, bugNumber),
-          recentMatches)
+      ? mergePushes(filterPushes(authorPushes, dNumber, bugNumber), recentMatches)
       : recentMatches;
   }
 
-  // If no commit-message matches but we have a D-number and author pushes,
-  // walk the parent commit of each recent push via hg-edge to find ones whose
-  // parent message contains the Phabricator revision link (e.g. mach try auto).
-  if (allMatches.length === 0 && dNumber && authorPushes?.length)
-    allMatches = await findMatchesByParentCommit(authorPushes, dNumber);
+  // Also check recent unmatched pushes via hg parent-walk to catch mach-try-auto runs.
+  if (dNumber && authorPushes?.length)
+    allMatches = mergePushes(allMatches,
+      await findMatchesByParentCommit(authorPushes, dNumber, new Set(allMatches.map(p => p.id))));
 
   allMatches.sort((a, b) => b.push_timestamp - a.push_timestamp);
 
