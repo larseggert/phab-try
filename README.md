@@ -15,4 +15,4 @@ The panel refreshes automatically every 60 seconds while any push has jobs still
 
 ## Installation
 
-Install from [addons.mozilla.org](https://addons.mozilla.org) (link TBD), or load temporarily via `about:debugging` → Load Temporary Add-on → select `manifest.json`.
+Install from [addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/phab-try/), or load temporarily via `about:debugging` → Load Temporary Add-on → select `manifest.json`.
