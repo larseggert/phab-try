@@ -1,4 +1,10 @@
 {
+  "categories": {
+    "firefox": ["web-development"]
+  },
+  "summary": {
+    "en-US": "Surfaces Treeherder try push status on Phabricator and Bugzilla pages."
+  },
   "version": {
     "license": "MPL-2.0"
   }
