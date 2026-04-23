@@ -56,4 +56,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG:      ${{ github.ref_name }}
-        run: gh release create "$TAG" web-ext-artifacts/*.xpi --generate-notes
+        run: |
+          gh release create "$TAG" web-ext-artifacts/*.xpi --generate-notes 2>/dev/null || \
+            gh release upload "$TAG" web-ext-artifacts/*.xpi --clobber
