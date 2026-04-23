@@ -6,8 +6,8 @@ export default {
     "web-ext-config.mjs",
     "package.json",
     "package-lock.json",
-    "PLAN.md",
     "README.md",
     "icons/icon.svg",
+    "amo-metadata.json",
   ],
 };

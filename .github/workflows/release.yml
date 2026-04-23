@@ -45,6 +45,10 @@ jobs:
       - name: Lint extension
         run: npm run lint:ext
 
+      # Build locally first — validates file collection and structure before touching AMO.
+      - name: Build extension
+        run: npm run build
+
       # Secrets are stored in the "release" GitHub environment.
       - name: Sign extension (AMO)
         run: npm run sign
