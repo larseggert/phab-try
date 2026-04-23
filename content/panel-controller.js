@@ -13,7 +13,7 @@ function onDOMReady(fn) {
 
 function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) {
   if (document.querySelector("[data-pt-panel]")) return;  // already injected
-  const LOADING_MSG = "Searching last 500 try pushes\u2026";
+  const LOADING_MSG = "Searching try pushes\u2026";
 
   async function fetchPushes(pl, force = false) {
     const resp = await browser.runtime.sendMessage({ type: "getTryPushes", ...pl, force });

@@ -9,5 +9,6 @@ export default {
     "README.md",
     "icons/icon.svg",
     "amo-metadata.json",
+    "debug.mjs",
   ],
 };
