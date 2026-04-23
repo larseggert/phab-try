@@ -1,4 +1,5 @@
 const TREEHERDER_BASE = "https://treeherder.mozilla.org";
+const HG_TRY_BASE     = "https://hg.mozilla.org/try";
 
 async function fetchJson(url) {
   const resp = await fetch(url);
@@ -24,9 +25,10 @@ function pushComments(push) {
   return (push.revisions || []).map(r => r.comments || "").join("\n");
 }
 
+const phabNeedle = dNumber => `phabricator.services.mozilla.com/D${dNumber}`;
+
 function filterPushesForRevision(pushes, dNumber) {
-  const needle = `phabricator.services.mozilla.com/D${dNumber}`;
-  return pushes.filter(push => pushComments(push).includes(needle));
+  return pushes.filter(push => pushComments(push).includes(phabNeedle(dNumber)));
 }
 
 function filterPushesForBug(pushes, bugNumber) {
@@ -71,6 +73,28 @@ async function mapCapped(items, fn, cap = 5) {
   return results.filter(r => r !== undefined);
 }
 
+// --- hg parent-commit correlation ---
+
+// When mach try auto is used, the try tip commit has a generic message with no
+// D-number, but its parent commit (the user's patch) has the full message including
+// "Differential Revision: https://phabricator.services.mozilla.com/D{N}".
+// Walking one level up via hg.mozilla.org lets us correlate those pushes.
+
+async function fetchHgRevMeta(revision) {
+  const data = await fetchJson(`${HG_TRY_BASE}/json-rev/${revision}`);
+  return { desc: data?.desc ?? "", parents: data?.parents ?? [] };
+}
+
+async function findMatchesByParentCommit(pushes, dNumber) {
+  const needle = phabNeedle(dNumber);
+  const recent = pushes.toSorted((a, b) => b.push_timestamp - a.push_timestamp).slice(0, 10);
+  return mapCapped(recent, async push => {
+    const { parents } = await fetchHgRevMeta(push.revision);
+    const desc = parents[0] && (await fetchHgRevMeta(parents[0])).desc;
+    return desc?.includes(needle) ? push : undefined;
+  }, 3);
+}
+
 // --- Push merging ---
 
 function mergePushes(...arrays) {
@@ -97,9 +121,11 @@ const inFlight = new Map();
 
 async function doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey) {
   let allMatches;
+  let authorPushes;  // kept for the hg parent-commit fallback below
 
   if (effectiveAuthor) {
-    allMatches = filterPushes(await fetchTryPushes({ author: effectiveAuthor }), dNumber, bugNumber);
+    authorPushes = await fetchTryPushes({ author: effectiveAuthor });
+    allMatches = filterPushes(authorPushes, dNumber, bugNumber);
   } else {
     const recentMatches = filterPushes(await fetchTryPushes({ count: 200 }), dNumber, bugNumber)
       .filter(p => p.author?.includes("@"));
@@ -112,6 +138,12 @@ async function doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey) {
       : recentMatches;
   }
 
+  // If no commit-message matches but we have a D-number and author pushes,
+  // walk the parent commit of each recent push via hg-edge to find ones whose
+  // parent message contains the Phabricator revision link (e.g. mach try auto).
+  if (allMatches.length === 0 && dNumber && authorPushes?.length)
+    allMatches = await findMatchesByParentCommit(authorPushes, dNumber);
+
   allMatches.sort((a, b) => b.push_timestamp - a.push_timestamp);
 
   const enriched = await mapCapped(allMatches, async push => {
@@ -122,7 +154,7 @@ async function doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey) {
       revision: push.revision,
       push_timestamp: push.push_timestamp,
       author: push.author,
-      treeherder_url: `https://treeherder.mozilla.org/jobs?repo=try&revision=${push.revision}`,
+      treeherder_url: `${TREEHERDER_BASE}/jobs?repo=try&revision=${push.revision}`,
       health,
     };
   }, 5);
