@@ -56,10 +56,9 @@ jobs:
           WEB_EXT_API_KEY:    ${{ secrets.AMO_API_KEY }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_API_SECRET }}
 
+      # GitHub release is a changelog/version marker; users install from addons.mozilla.org.
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG:      ${{ github.ref_name }}
-        run: |
-          gh release create "$TAG" web-ext-artifacts/*.xpi --generate-notes 2>/dev/null || \
-            gh release upload "$TAG" web-ext-artifacts/*.xpi --clobber
+        run: gh release create "$TAG" --generate-notes 2>/dev/null || true
