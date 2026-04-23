@@ -9,7 +9,7 @@
     "lint:ext":       "web-ext lint",
     "lint":           "npm run lint:js && npm run lint:ext",
     "build":          "web-ext build",
-    "sign":           "web-ext sign --channel=unlisted"
+    "sign":           "web-ext sign --channel=listed"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.0",
