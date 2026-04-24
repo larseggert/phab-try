@@ -224,6 +224,8 @@
   };
 
   // Shared utilities for bugzilla-panel.js
+  window.ptPhabBase            = "https://phabricator.services.mozilla.com";
+  window.ptNest                = nest;
   window.ptEl                  = el;
   window.ptWithAction          = withAction;
   window.ptShortRev            = shortRev;
