@@ -249,7 +249,7 @@
       } catch (e) { console.warn("[phab-try] auto-refresh failed", e); }
     }
     function stop() { stopped = true; clearInterval(handle); handle = null; }
-    handle = setInterval(tick, 60_000);
+    handle = setInterval(tick, 120_000);
     return stop;
   };
 })();
