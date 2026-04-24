@@ -6,6 +6,8 @@
 (function () {
   "use strict";
 
+  const PHAB_BASE = window.ptPhabBase;
+
   function getBugNumber() {
     const id = new URLSearchParams(window.location.search).get("id");
     if (id && /^\d+$/.test(id)) return id;
@@ -42,15 +44,28 @@
     return null;
   }
 
-  // If the bug has a linked Phabricator revision, use its D-number for the
-  // try-push search — more reliable than bug-number text matching.
-  function getLinkedDNumber() {
-    const link = document.querySelector(
-      '#module-phabricator-revisions-content a[href*="phabricator.services.mozilla.com/D"]'
-    );
-    if (!link) return null;
-    const m = link.href.match(/\/D(\d+)\b/);
-    return m ? m[1] : null;
+  // Finds all Phabricator revision attachments via comment-section schema.org metadata.
+  // Works for all users (unlike #module-phabricator-revisions-content which requires login).
+  function getPhabAttachments() {
+    return [...document.querySelectorAll(".attachment[data-id]")].flatMap(el => {
+      const m = el.querySelector('meta[itemprop="name"]')?.content
+        ?.match(/^phabricator-D(\d+)-url\.txt$/);
+      return m ? [{ attachmentId: el.dataset.id, dNumber: m[1] }] : [];
+    });
+  }
+
+  // Injects a D-link badge into each Phabricator attachment row in the #attachments table.
+  function injectDBadges(attachments) {
+    for (const { attachmentId, dNumber } of attachments) {
+      const actions = document.querySelector(
+        `#attachments tr[data-attachment-id="${attachmentId}"] .attach-actions`
+      );
+      if (!actions || actions.querySelector(".pt-bz-d-link")) continue;
+      actions.prepend(" | ", Object.assign(document.createElement("a"), {
+        href: `${PHAB_BASE}/D${dNumber}`, textContent: `D${dNumber}`,
+        target: "_blank", rel: "noopener noreferrer", className: "pt-bz-d-link",
+      }));
+    }
   }
 
   function findInsertionPoint() {
@@ -66,13 +81,20 @@
   function init() {
     const bugNumber = getBugNumber();
     if (!bugNumber) return;
-    const dNumber = getLinkedDNumber();
-    const author  = getAssigneeEmail();
-    initTryPanel(
-      { bugNumber, ...(dNumber && { dNumber }), ...(author && { author }) },
-      findInsertionPoint,
-      window.ptCreateBugzillaPanel,
-    );
+
+    const attachments = getPhabAttachments();
+    injectDBadges(attachments);
+
+    const dNums  = attachments.map(a => a.dNumber);
+    const author = getAssigneeEmail();
+
+    const payload = {
+      bugNumber,
+      ...(dNums.length >= 2 ? { dNumbers: dNums } : dNums.length ? { dNumber: dNums[0] } : {}),
+      ...(author && { author }),
+    };
+
+    initTryPanel(payload, findInsertionPoint, window.ptCreateBugzillaPanel);
   }
 
   onDOMReady(init);

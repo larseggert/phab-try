@@ -1,6 +1,14 @@
-const TREEHERDER_BASE = "https://treeherder.mozilla.org";
-const HG_TRY_BASE     = "https://hg.mozilla.org/try";
-const PHAB_BASE       = "https://phabricator.services.mozilla.com";
+const TREEHERDER_BASE  = "https://treeherder.mozilla.org";
+const HG_TRY_BASE      = "https://hg.mozilla.org/try";
+const PHAB_BASE        = "https://phabricator.services.mozilla.com";
+const BUGZILLA_BASE    = "https://bugzilla.mozilla.org";
+const CACHE_TTL_MS     = 2 * 60 * 1000;
+
+// Derive regex patterns from URL constants to avoid duplicating hostname strings.
+const escapeHost   = url => new URL(url).host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const PHAB_D_SRC   = `${escapeHost(PHAB_BASE)}\\/D(\\d+)`;
+const phabDRe      = () => new RegExp(PHAB_D_SRC, "g");  // fresh instance per call (g-flag is stateful)
+const BUG_URL_RE   = new RegExp(`${escapeHost(BUGZILLA_BASE)}\\/show_bug\\.cgi\\?id=(\\d+)`);
 
 const safely = async fn => { try { return await fn(); } catch (_e) { return null; } };
 
@@ -32,24 +40,117 @@ const phabNeedle = dNumber => `${PHAB_BASE}/D${dNumber}`;
 
 function extractLinks(text) {
   const uniq    = re => [...new Set([...text.matchAll(re)].map(m => m[1]))];
-  const dNums   = uniq(/phabricator\.services\.mozilla\.com\/D(\d+)/g);
+  const dNums   = uniq(phabDRe());
   const bugNums = uniq(/\bBug\s+(\d+)\b/gi);
   return (dNums.length || bugNums.length) ? { dNums, bugNums } : null;
+}
+
+// Shared Phabricator HTML cache: avoids duplicate fetches between resolveLinks
+// (bug-number lookup) and getDTitle (title extraction) for the same D-number.
+// Entries expire after CACHE_TTL_MS to avoid accumulating unbounded HTML blobs.
+const phabHtmlCache = new Map();
+const fetchPhabHtml = dNum => {
+  const entry = phabHtmlCache.get(dNum);
+  if (entry && Date.now() - entry.ts < CACHE_TTL_MS) return entry.promise;
+  const promise = safely(async () => {
+    const resp = await fetch(`${PHAB_BASE}/D${dNum}`);
+    if (!resp.ok || !resp.url.startsWith(`${PHAB_BASE}/D`)) return null;
+    return resp.text();
+  });
+  phabHtmlCache.set(dNum, { promise, ts: Date.now() });
+  promise.then(html => { if (html == null) phabHtmlCache.delete(dNum); });
+  return promise;
+};
+
+// Normalize a single commit subject line for title-matching:
+// strip optional "Bug N -" prefix, "r=..." reviewer suffix, then lowercase.
+const normalizeSubject = line => (line ?? "")
+  .replace(/^\s*Bug\s+\d+\s*[-–—]\s*/i, "")
+  .replace(/\s+r=\S+\s*$/i, "")
+  .trim().toLowerCase();
+
+// Extract the first (subject) line of each revision in a push.
+const revisionSubjects = push =>
+  (push.revisions ?? []).map(r => (r.comments ?? "").split('\n')[0].trim()).filter(Boolean);
+
+// Extract and decode the Phabricator page title, stripping site/section suffixes.
+const extractPhabTitle = html => {
+  const m = html?.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (!m) return null;
+  const raw = new DOMParser().parseFromString(m[1], "text/html").body.textContent ?? m[1];
+  return raw.replace(/\s*[-–—·•]\s*(Differential\s*[-–—·•]\s*)?Phabricator\s*$/i, "").trim() || null;
+};
+
+// Revision title normalised for matching: strip leading "D{n} " identifier, then apply
+// the same subject normalisation used for commit lines (Bug prefix, r= suffix, lowercase).
+const phabTitle = dNum =>
+  fetchPhabHtml(dNum).then(html =>
+    normalizeSubject(extractPhabTitle(html)?.replace(/^D\d+\s+/i, "")) || null);
+
+// True if the normalized D-revision title overlaps with any of the commit subjects.
+// Require a minimum length to avoid false positives from very short titles (e.g. "fix").
+const MIN_TITLE_MATCH_LEN = 15;
+const titleMatchesSubjects = (title, normSubjects) =>
+  title?.length >= MIN_TITLE_MATCH_LEN &&
+  normSubjects.some(s => s.length >= MIN_TITLE_MATCH_LEN && (s.includes(title) || title.includes(s)));
+
+const augmentLinks = (links, key, vals) => vals.length ? { ...links, [key]: vals } : links;
+
+// If links has D-numbers but no bug numbers, look up bug numbers from Phabricator pages.
+async function withBugNums(links) {
+  if (!links || links.bugNums.length) return links;
+  const found = await Promise.all(
+    links.dNums.map(d => fetchPhabHtml(d).then(
+      html => html?.match(BUG_URL_RE)?.[1] ?? null
+    ))
+  );
+  return augmentLinks(links, "bugNums", [...new Set(found.filter(Boolean))]);
+}
+
+// If links has bug numbers but no D-numbers, look up candidates from Bugzilla attachments
+// and match each against the per-revision subject lines via Phabricator title comparison.
+async function withDNums(links, subjects) {
+  if (!links || links.dNums.length || !links.bugNums.length) return links;
+  const normSubjects = subjects.map(normalizeSubject).filter(Boolean);
+
+  const candidates = (await Promise.all(
+    links.bugNums.map(b => safely(async () => {
+      const data = await fetchJson(
+        `${BUGZILLA_BASE}/rest/bug/${b}/attachment?include_fields=file_name,content_type,is_obsolete`
+      );
+      return (data.bugs?.[b] ?? [])
+        .filter(a => a.content_type === "text/x-phabricator-request" && !a.is_obsolete)
+        .map(a => a.file_name.match(/^phabricator-D(\d+)-url\.txt$/)?.[1])
+        .filter(Boolean);
+    }))
+  )).flat().filter(Boolean);
+
+  const unique = [...new Set(candidates)];
+  const dNums = normSubjects.length
+    ? (await Promise.all(unique.map(async d =>
+        titleMatchesSubjects(await phabTitle(d), normSubjects) ? d : null
+      ))).filter(Boolean)
+    : unique;  // no subjects to compare — include all candidates
+
+  return augmentLinks(links, "dNums", dNums);
 }
 
 async function resolveLinks(revision) {
   const [push] = await fetchTryPushes({ revision });
   if (!push) return null;
 
+  const enrich = async (links, subjects) => withDNums(await withBugNums(links), subjects);
+
   const links = extractLinks(pushComments(push));
-  if (links) return links;
+  if (links) return enrich(links, revisionSubjects(push));
 
   // Fallback: walk the hg parent commit for mach-try-auto pushes
   return safely(async () => {
     const { parents } = await fetchHgRevMeta(revision);
     if (!parents[0]) return null;
     const { desc } = await fetchHgRevMeta(parents[0]);
-    return extractLinks(desc);
+    const hgLinks = extractLinks(desc);
+    return hgLinks ? enrich(hgLinks, [desc.split('\n')[0]]) : null;
   });
 }
 
@@ -65,7 +166,6 @@ function filterPushes(pushes, dNumber, bugNumber) {
 // --- Cache ---
 
 const cache = new Map();
-const CACHE_TTL_MS = 2 * 60 * 1000;
 
 function cacheGet(key) {
   const entry = cache.get(key);
@@ -165,18 +265,8 @@ const getStoredEmail = () =>
 // --- Message handler ---
 
 const getDTitle = dNum =>
-  safely(async () => {
-    const resp = await fetch(`${PHAB_BASE}/D${dNum}`);
-    if (!resp.ok || !resp.url.startsWith(`${PHAB_BASE}/D`)) return null;
-    const m = (await resp.text()).match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (!m) return null;
-    // Decode HTML entities, then strip " - Differential - Phabricator" suffixes
-    const raw = new DOMParser().parseFromString(m[1], "text/html").body.textContent ?? m[1];
-    return raw.replace(/\s*[-–—·•]\s*(Differential\s*[-–—·•]\s*)?Phabricator\s*$/i, "").trim() || null;
-  }).then(title => ({ title }));
+  fetchPhabHtml(dNum).then(html => ({ title: extractPhabTitle(html) }));
 
-// Deduplicates concurrent requests for the same key so multiple open tabs
-// sharing the same revision don't each fire independent Treeherder fetches.
 const inFlight = new Map();
 
 async function doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey) {
@@ -216,25 +306,78 @@ async function doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey) {
   return { pushes: enriched };
 }
 
-async function handleGetTryPushes({ author, dNumber, bugNumber, force }) {
-  // Stored email (user setting) takes precedence over any content-script hint.
-  const effectiveAuthor = (await getStoredEmail()) || author || null;
-  const cacheKey = `${effectiveAuthor ?? ""}:${dNumber ?? ""}:${bugNumber ?? ""}`;
-
+// Deduplicates concurrent requests for the same key so multiple open tabs
+// sharing the same revision don't each fire independent Treeherder fetches.
+// Skip dedup for forced reloads so an explicit user action always starts a fresh fetch.
+function withCacheAndInFlight(cacheKey, force, fn) {
   if (!force) {
     const cached = cacheGet(cacheKey);
     if (cached) return { pushes: cached };
+    if (inFlight.has(cacheKey)) return inFlight.get(cacheKey);
   }
-
-  // Reuse an in-flight request for the same key rather than firing duplicates
-  // (e.g. multiple tabs open for the same revision, or concurrent auto-refresh).
-  // Skip dedup for forced reloads so an explicit user action always starts a fresh fetch.
-  if (!force && inFlight.has(cacheKey)) return inFlight.get(cacheKey);
-
-  const promise = doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey);
+  const promise = fn();
   inFlight.set(cacheKey, promise);
   promise.finally(() => inFlight.delete(cacheKey));
   return promise;
+}
+
+// For pushes that have no dNumber after the per-D merge (e.g. commits that include
+// "Bug N" but omitted the "Differential Revision:" URL), fetch their commit text and
+// match against D-revision titles to assign the correct label.
+async function labelUntagged(pushes, dNumbers) {
+  const untagged = pushes.filter(p => !p.dNumber);
+  if (!untagged.length) return pushes;
+
+  const dTitles = new Map(await Promise.all(
+    dNumbers.map(async d => [d, await phabTitle(d)])
+  ));
+
+  const relabeled = new Map(await mapCapped(untagged, async p => {
+    const [raw] = (await safely(() => fetchTryPushes({ revision: p.revision }))) ?? [];
+    if (!raw) return [p.id, p];
+    const subjects = revisionSubjects(raw).map(normalizeSubject).filter(Boolean);
+    const match = [...dTitles].find(([, t]) => titleMatchesSubjects(t, subjects));
+    return [p.id, match ? { ...p, dNumber: match[0] } : p];
+  }, 5));
+
+  return pushes.map(p => relabeled.get(p.id) ?? p);
+}
+
+async function doFetchMulti(effectiveAuthor, dNumbers, bugNumber, cacheKey) {
+  const [perD, perBug] = await Promise.all([
+    Promise.all(dNumbers.map(d =>
+      safely(() => doFetch(effectiveAuthor, d, bugNumber, `${effectiveAuthor ?? ""}:${d}:${bugNumber ?? ""}`))
+        .then(r => r ?? { pushes: [] }))),
+    safely(() => doFetch(effectiveAuthor, null, bugNumber, `${effectiveAuthor ?? ""}::${bugNumber ?? ""}`))
+      .then(r => r ?? { pushes: [] }),
+  ]);
+  // Label per-D pushes, then merge with bug-only pushes (dedup keeps labeled version first).
+  const merged = await labelUntagged(
+    mergePushes(
+      ...perD.map((r, i) => r.pushes.map(p => ({ ...p, dNumber: dNumbers[i] }))),
+      perBug.pushes,
+    ),
+    dNumbers,
+  );
+  merged.sort((a, b) => b.push_timestamp - a.push_timestamp);
+  cacheSet(cacheKey, merged);
+  return { pushes: merged };
+}
+
+async function handleGetTryPushes({ author, dNumber, dNumbers, bugNumber, force }) {
+  // Stored email (user setting) takes precedence over any content-script hint.
+  const effectiveAuthor = (await getStoredEmail()) || author || null;
+
+  // Multiple D-numbers (bug with several revisions): fetch per D-number, merge and label.
+  if (dNumbers?.length >= 2) {
+    const cacheKey = `${effectiveAuthor ?? ""}:multi:${[...dNumbers].sort().join(",")}:${bugNumber ?? ""}`;
+    return withCacheAndInFlight(cacheKey, force,
+      () => doFetchMulti(effectiveAuthor, dNumbers, bugNumber, cacheKey));
+  }
+
+  const cacheKey = `${effectiveAuthor ?? ""}:${dNumber ?? ""}:${bugNumber ?? ""}`;
+  return withCacheAndInFlight(cacheKey, force,
+    () => doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey));
 }
 
 browser.runtime.onMessage.addListener((msg, _sender) => {
