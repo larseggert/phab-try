@@ -5,7 +5,7 @@ const BUGZILLA_BASE    = "https://bugzilla.mozilla.org";
 const CACHE_TTL_MS     = 2 * 60 * 1000;
 
 // Derive regex patterns from URL constants to avoid duplicating hostname strings.
-const escapeHost   = url => new URL(url).host.replace(/\./g, "\\.");
+const escapeHost   = url => new URL(url).host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const PHAB_D_SRC   = `${escapeHost(PHAB_BASE)}\\/D(\\d+)`;
 const phabDRe      = () => new RegExp(PHAB_D_SRC, "g");  // fresh instance per call (g-flag is stateful)
 const BUG_URL_RE   = new RegExp(`${escapeHost(BUGZILLA_BASE)}\\/show_bug\\.cgi\\?id=(\\d+)`);
