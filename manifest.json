@@ -20,12 +20,19 @@
   "host_permissions": [
     "https://treeherder.mozilla.org/*",
     "https://hg.mozilla.org/*",
-    "https://hg-edge.mozilla.org/*"
+    "https://hg-edge.mozilla.org/*",
+    "https://bugzilla.mozilla.org/*",
+    "https://phabricator.services.mozilla.com/*"
   ],
   "background": {
     "scripts": ["background.js"]
   },
   "content_scripts": [
+    {
+      "matches": ["https://treeherder.mozilla.org/jobs*"],
+      "js": ["content/treeherder.js"],
+      "css": ["content/treeherder.css"]
+    },
     {
       "matches": ["https://phabricator.services.mozilla.com/D*"],
       "js": ["content/panel.js", "content/panel-controller.js", "content/phabricator.js"],

@@ -1,0 +1,14 @@
+/* Layout for the injected Phabricator/Bugzilla back-link bar */
+[data-pt-links] {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: 6px;
+}
+
+/* Compact the Bootstrap btn-sm links to match Treeherder's dense header */
+[data-pt-links] .btn {
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
