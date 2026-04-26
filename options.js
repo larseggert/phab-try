@@ -23,6 +23,18 @@ saveBtn.addEventListener("click", async () => {
   }
 });
 
+document.getElementById("flush").addEventListener("click", async () => {
+  try {
+    // Remove all storage.local keys (hg rev cache + author push stores).
+    await browser.storage.local.clear();
+    // Ask the background to drop its in-memory caches too.
+    await browser.runtime.sendMessage({ type: "flushCaches" });
+    show("Caches flushed.", "ok");
+  } catch (err) {
+    show(`Error: ${err.message}`, "error");
+  }
+});
+
 const STATUS_CLEAR_MS = 2_000;
 
 function show(msg, cls) {

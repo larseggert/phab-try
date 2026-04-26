@@ -6,12 +6,9 @@
 // Relies on panel.js being loaded first for shared utilities.
 window.ptCreateBugzillaPanel = (function () {
 
-  const { ptPhabBase: PHAB_BASE, ptNest: nest,
+  const { ptPhabBase: PHAB_BASE, ptFaIcon: bzIcon, ptNest: nest,
           ptEl: el, ptWithAction: withAction, ptShortRev: shortRev,
           ptMetrics, ptStatusSummary, ptResolveMetricResult, ptNoTryPushesMsg } = window;
-
-  // FA5 icon with aria-hidden, matching Bugzilla's decorative icon pattern.
-  const bzIcon = cls => Object.assign(el("i", cls), { ariaHidden: "true" });
 
   // Matches Bugzilla's rel-time span pattern. bug_modal.js runs
   // setInterval(relativeTimer, 60_000) over $('.rel-time'), so our spans
@@ -97,7 +94,7 @@ window.ptCreateBugzillaPanel = (function () {
       const nowExpanded = spinner.getAttribute("aria-expanded") === "false";
       spinner.setAttribute("aria-expanded", String(nowExpanded));
       spinner.setAttribute("aria-label", nowExpanded ? LABEL_EXP : LABEL_COL);
-      content.style.display = nowExpanded ? "" : "none";
+      content.hidden = !nowExpanded;
     }
     spinner.addEventListener("click", toggleCollapse);
     spinner.addEventListener("keydown", e => {

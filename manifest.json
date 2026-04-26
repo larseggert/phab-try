@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "phab-try",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Surfaces Treeherder try push status on Phabricator and Bugzilla pages.",
   "browser_specific_settings": {
     "gecko": {
@@ -12,7 +12,7 @@
       }
     }
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "alarms"],
   "options_ui": {
     "page": "options.html",
     "open_in_tab": false
