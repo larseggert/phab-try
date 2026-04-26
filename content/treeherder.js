@@ -70,38 +70,26 @@
     }
   }
 
-  function allInjected() {
-    const headers = document.querySelectorAll(PUSH_HEADER_SEL);
-    return headers.length > 0 &&
-      [...headers].every(h => h.querySelector(".push-buttons [data-pt-links]"));
-  }
-
   // --- Main ---
 
   const links = await safely(() => browser.runtime.sendMessage({ type: "resolveLinks", revision }));
   if (!links) return;
 
   const titles = await fetchTitles(links);
+  const inject = () => tryInject(links, titles);
+  inject();
 
-  if (!allInjected()) {
-    const inject = () => tryInject(links, titles);
-    inject();
-
-    // Watch for headers rendered after page load (React SPA).
-    // Debounce via rAF so rapid React DOM batches collapse into one inject() call.
-    // Disconnect once every visible push header has been processed.
-    let rafPending = false;
-    const observer = new MutationObserver(() => {
-      if (!rafPending) {
-        rafPending = true;
-        requestAnimationFrame(() => {
-          rafPending = false;
-          inject();
-          if (allInjected()) observer.disconnect();
-        });
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
+  // Watch for headers rendered after page load (React SPA), including re-renders
+  // triggered by selectedTaskRun or other React lifecycle events. inject() is
+  // idempotent (skips headers that already have [data-pt-links]), so it is safe
+  // to call on every DOM mutation. Never disconnect — React can recreate headers.
+  let rafPending = false;
+  const observer = new MutationObserver(() => {
+    if (!rafPending) {
+      rafPending = true;
+      requestAnimationFrame(() => { rafPending = false; inject(); });
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 
 })().catch(_e => { /* silent — don't break the Treeherder page */ });
