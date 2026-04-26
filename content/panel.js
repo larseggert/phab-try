@@ -4,6 +4,8 @@
 (function () {
   "use strict";
 
+  const AUTO_REFRESH_MS = 120_000; // 2 minutes — matches background cache TTL
+
   // --- DOM helpers ---
 
   function el(tag, cls, text) {
@@ -225,6 +227,7 @@
 
   // Shared utilities for bugzilla-panel.js
   window.ptPhabBase            = "https://phabricator.services.mozilla.com";
+  window.ptFaIcon              = faIcon;
   window.ptNest                = nest;
   window.ptEl                  = el;
   window.ptWithAction          = withAction;
@@ -251,7 +254,7 @@
       } catch (e) { console.warn("[phab-try] auto-refresh failed", e); }
     }
     function stop() { stopped = true; clearInterval(handle); handle = null; }
-    handle = setInterval(tick, 120_000);
+    handle = setInterval(tick, AUTO_REFRESH_MS);
     return stop;
   };
 })();

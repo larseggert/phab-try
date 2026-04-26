@@ -6,7 +6,8 @@
 (function () {
   "use strict";
 
-  const PHAB_BASE = window.ptPhabBase;
+  const PHAB_BASE          = window.ptPhabBase;
+  const PHAB_ATTACHMENT_RE = /^phabricator-D(\d+)-url\.txt$/;
 
   function getBugNumber() {
     const id = new URLSearchParams(window.location.search).get("id");
@@ -49,7 +50,7 @@
   function getPhabAttachments() {
     return [...document.querySelectorAll(".attachment[data-id]")].flatMap(el => {
       const m = el.querySelector('meta[itemprop="name"]')?.content
-        ?.match(/^phabricator-D(\d+)-url\.txt$/);
+        ?.match(PHAB_ATTACHMENT_RE);
       return m ? [{ attachmentId: el.dataset.id, dNumber: m[1] }] : [];
     });
   }
@@ -91,9 +92,10 @@
     const payload = {
       bugNumber,
       ...(dNums.length >= 2 ? { dNumbers: dNums } : dNums.length ? { dNumber: dNums[0] } : {}),
-      ...(author && { author }),
+      // Only hint the assignee email when there's no D-number — the assignee may not
+      // be the try pusher, and the D-number path can auto-discover the real author.
+      ...(dNums.length === 0 && author && { author }),
     };
-
     initTryPanel(payload, findInsertionPoint, window.ptCreateBugzillaPanel);
   }
 
