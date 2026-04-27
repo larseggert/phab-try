@@ -1,8 +1,10 @@
 # phab-try
 
-Firefox extension that surfaces [Treeherder](https://treeherder.mozilla.org) try push status directly on [Phabricator](https://phabricator.services.mozilla.com) revision pages and [Bugzilla](https://bugzilla.mozilla.org) bug pages.
+Firefox extension that surfaces [Treeherder](https://treeherder.mozilla.org) try push status directly on [Phabricator](https://phabricator.services.mozilla.com) revision pages and [Bugzilla](https://bugzilla.mozilla.org) bug pages, and adds back-links from Treeherder try pages to the corresponding revision and bug.
 
 ## What it does
+
+### Try Pushes panel (Phabricator and Bugzilla)
 
 Adds a **Try Pushes** panel above the Details section on Phabricator D* pages and above the comments on Bugzilla bug pages. For each try push associated with the revision or bug it shows:
 
@@ -11,19 +13,23 @@ Adds a **Try Pushes** panel above the Details section on Phabricator D* pages an
 - Build / Lint / Tests status badges
 - Job count summary (completed, failed, running, pending)
 
-The panel refreshes automatically every 60 seconds while any push has jobs still running.
+On Bugzilla pages where a bug has **multiple Phabricator revisions**, each push row is labelled with the D-number it belongs to, so you can see at a glance which revision each try run covers.
 
-## How the panel is produced
+The panel refreshes automatically every two minutes while any push has jobs still running.
 
-1. **Page detection.** When you open a Phabricator `D*` page or a Bugzilla `show_bug.cgi` page, a content script extracts the D-number (Phabricator) or bug number (Bugzilla) from the URL, and the assignee email or author hint from the page DOM.
+### Attachment annotation (Bugzilla)
 
-2. **Try push search.** The content script asks the background worker to search Treeherder. To avoid CORS restrictions the background worker makes all network requests. It fetches up to 500 try pushes for the revision author via the [Treeherder API](https://treeherder.mozilla.org/docs/) and filters them by looking for the Phabricator D-number or bug number in each push's commit message. In addition, the background walks one level up the Mercurial commit graph via `hg.mozilla.org` for any recent pushes not yet matched: when `mach try auto` is used the try tip commit has a generic message, but its parent is the user's patch commit carrying the `Differential Revision:` trailer with the D-number.
+On Bugzilla bug pages, each Phabricator revision attachment in the Attachments table is annotated with its D-number as a link directly to the Phabricator revision.
 
-3. **Health enrichment.** For each matched push the background fetches its build/lint/test health summary from Treeherder and constructs an enriched push object. Up to five health fetches run concurrently.
+### Back-links (Treeherder)
 
-4. **Panel render.** The enriched push list is returned to the content script, which inserts a styled panel into the page (Phabricator-style on Phabricator, Bugzilla module-style on Bugzilla). Results are cached for two minutes; the cache is bypassed on manual reload.
+On Treeherder try job pages (`/jobs?repo=try&revision=…`), links to the corresponding Phabricator revision(s) and Bugzilla bug are injected into the push header. When a commit message omits the `Differential Revision:` trailer, the extension looks up the correct revision via the Bugzilla attachment API and Phabricator title matching.
 
-5. **Auto-refresh.** If any push has jobs still running, a 60-second interval fires, fetches fresh data, and updates the panel in place. The interval stops automatically once all jobs finish or the panel is removed from the DOM.
+## How it works
+
+A content script extracts the D-number or bug number from the page and asks the background worker — which handles all network requests to avoid CORS — to search Treeherder. The background fetches the author's try push history and matches pushes by looking for the D-number or bug number in commit messages. For `mach try auto` pushes (where the tip commit has a generic message), it walks one level up the Mercurial commit graph via `hg.mozilla.org` to find the patch commit's `Differential Revision:` trailer.
+
+Each matched push is enriched with a build/lint/test health summary from Treeherder. Results are cached for two minutes and auto-refreshed every two minutes while jobs are still running.
 
 ## Settings
 
