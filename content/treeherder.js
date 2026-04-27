@@ -52,7 +52,7 @@
 
   function buildLinkBar({ dNums, bugNums }, { d: dTitles, bug: bugTitles }) {
     const bar = document.createElement("span");
-    bar.setAttribute("data-pt-links", "1");
+    bar.dataset.ptLinks = "1";
     bar.append(
       ...dNums.map(d   => makeLink(`${PHAB_BASE}/D${d}`, `D${d}`, dTitles[d])),
       ...bugNums.map(b => makeLink(`${BUGZILLA_BASE}/show_bug.cgi?id=${b}`, `Bug ${b}`, bugTitles[b])),

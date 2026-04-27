@@ -53,7 +53,7 @@ window.ptCreateBugzillaPanel = (function () {
   const bzLink = (cls, text, href) =>
     Object.assign(el("a", cls, text), { href, target: "_blank", rel: "noopener noreferrer" });
 
-  const buildPushRow = (push, showRevCol) => nest(document.createElement("tr"),
+  const buildPushRow = (push, showRevCol) => nest(el("tr"),
     ...(showRevCol ? [push.dNumber
       ? nest(el("td", "pt-bz-rev"), bzLink("pt-bz-d-label", `D${push.dNumber}`, `${PHAB_BASE}/D${push.dNumber}`))
       : el("td", "pt-bz-rev")] : []),
@@ -105,9 +105,13 @@ window.ptCreateBugzillaPanel = (function () {
     function setSubtitle(text) { subtitle.textContent = text ? `(${text})` : ""; }
     function resetTitle()      { setTitle("Try Pushes"); setSubtitle(""); }
 
-    const showMsg = child => { resetTitle(); content.replaceChildren(child); };
-    const setLoading = msg => showMsg(el("p", "pt-bz-msg pt-bz-msg-loading", msg));
-    const setError   = msg => showMsg(nest(el("p", "pt-bz-msg pt-bz-msg-error", msg),
+    const showMsg = (...children) => { resetTitle(); content.replaceChildren(...children); };
+    const setLoading = (msg, done, total) => {
+      const bar = el("progress");
+      if (done !== undefined && total > 0) { bar.max = total; bar.value = done; }
+      showMsg(el("p", "pt-bz-msg pt-bz-msg-loading", msg), bar);
+    };
+    const setError = msg => showMsg(nest(el("p", "pt-bz-msg pt-bz-msg-error", msg),
       withAction(el("a", null, " Retry"), onReload)));
 
     function setPushes(pushes) {
