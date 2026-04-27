@@ -26,6 +26,9 @@
 .pt-state-loading { font-style: italic; padding: 4px 0; }
 .pt-state-error   { padding: 4px 0; }
 
+/* Progress bar inside the Phabricator panel */
+.pt-try-panel progress { display: block; width: 100%; margin-top: 4px; }
+
 /* Bugzilla panel overrides — all scoped under the module ID */
 #module-try-pushes {
   .module-header { display: flex; }   /* reload button on the right */
@@ -47,9 +50,12 @@
 
   /* State message paragraphs */
   .pt-bz-msg         { padding: 8px; margin: 0; }
-  .pt-bz-msg-loading { color: #666; font-style: italic; }
+  .pt-bz-msg-loading { color: #666; font-style: italic; padding-bottom: 4px; }
   .pt-bz-msg-error   { color: #c00; }
   .pt-bz-msg-empty   { color: #666; }
+
+  /* Progress bar as direct child of module-content; horizontal margins match .pt-bz-msg padding */
+  progress { display: block; width: calc(100% - 16px); margin: 0 8px 4px; }
 
   /* Fixed-width icons so all badges are the same size; custom glyphs for CI status */
   span[class^="revision-status-icon-"]::before { width: 1em; text-align: center; }

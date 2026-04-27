@@ -12,8 +12,7 @@
   function getBugNumber() {
     const id = new URLSearchParams(window.location.search).get("id");
     if (id && /^\d+$/.test(id)) return id;
-    const m = document.title.match(/\bBug\s+(\d+)\b/i);
-    return m ? m[1] : null;
+    return document.title.match(/\bBug\s+(\d+)\b/i)?.[1] ?? null;
   }
 
   function getAssigneeEmail() {
@@ -36,8 +35,8 @@
       if (!sib) continue;
       const a = sib.querySelector("a[href*='mailto:']");
       if (a) {
-        const m = a.href.match(/mailto:([^?]+)/);
-        if (m) return decodeURIComponent(m[1]);
+        const email = a.href.match(/mailto:([^?]+)/)?.[1];
+        if (email) return decodeURIComponent(email);
       }
       const text = sib.textContent.trim();
       if (text.includes("@")) return text;
@@ -49,9 +48,9 @@
   // Works for all users (unlike #module-phabricator-revisions-content which requires login).
   function getPhabAttachments() {
     return [...document.querySelectorAll(".attachment[data-id]")].flatMap(el => {
-      const m = el.querySelector('meta[itemprop="name"]')?.content
-        ?.match(PHAB_ATTACHMENT_RE);
-      return m ? [{ attachmentId: el.dataset.id, dNumber: m[1] }] : [];
+      const dNumber = el.querySelector('meta[itemprop="name"]')?.content
+        ?.match(PHAB_ATTACHMENT_RE)?.[1];
+      return dNumber ? [{ attachmentId: el.dataset.id, dNumber }] : [];
     });
   }
 

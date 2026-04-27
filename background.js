@@ -9,12 +9,12 @@ const PHAB_ATTACHMENT_MIME = "text/x-phabricator-request";
 const PHAB_ATTACHMENT_RE   = /^phabricator-D(\d+)-url\.txt$/;
 
 // Push-fetch tuning constants
-const INITIAL_AUTHOR_PUSH_COUNT = 1000; // first fetch: maximise history
-const DEFAULT_PUSH_COUNT        = 200;  // discovery / incremental fetches
-const MAX_PARENT_WALK_PUSHES    = 10;   // hg parent-walk candidate pool
-const PARENT_WALK_CONCURRENCY   = 3;    // concurrent hg fetches in parent walk
-const ENRICH_CONCURRENCY        = 5;    // concurrent health-summary fetches
-const KEEPALIVE_PERIOD_MINUTES  = 0.4;  // ~24 s — keeps background service worker alive
+const INITIAL_AUTHOR_PUSH_COUNT = 1000;  // first fetch: maximise history
+const DEFAULT_PUSH_COUNT        = 200;   // discovery / incremental fetches
+const MAX_WALK_CANDIDATES       = 20;    // mach-try-auto candidate pool cap
+const PARENT_WALK_CONCURRENCY   = 5;     // concurrent hg parent-desc fetches
+const ENRICH_CONCURRENCY        = 5;     // concurrent health-summary fetches
+const KEEPALIVE_PERIOD_MINUTES  = 0.4;   // ~24 s — keeps background service worker alive
 
 // Derive regex patterns from URL constants to avoid duplicating hostname strings.
 const escapeHost   = url => new URL(url).host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -87,9 +87,9 @@ const revisionSubjects = push =>
 
 // Extract and decode the Phabricator page title, stripping site/section suffixes.
 const extractPhabTitle = html => {
-  const m = html?.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (!m) return null;
-  const raw = new DOMParser().parseFromString(m[1], "text/html").body.textContent ?? m[1];
+  const t = html?.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
+  if (!t) return null;
+  const raw = new DOMParser().parseFromString(t, "text/html").body.textContent ?? t;
   return raw.replace(/\s*[-–—·•]\s*(Differential\s*[-–—·•]\s*)?Phabricator\s*$/i, "").trim() || null;
 };
 
@@ -103,12 +103,12 @@ const phabAuthor = dNum =>
       const row  = key.closest("tr") ?? key.parentElement;
       const link = row?.querySelector("a[href^='/p/']")
                 ?? row?.nextElementSibling?.querySelector("a[href^='/p/']");
-      const m = link?.getAttribute("href")?.match(/^\/p\/([^/]+)\//);
-      if (m) return `${m[1]}@mozilla.com`;
+      const u = link?.getAttribute("href")?.match(/^\/p\/([^/]+)\//)?.[1];
+      if (u) return `${u}@mozilla.com`;
     }
     // Fallback: search raw HTML for /p/username/ near "Author"
-    const m = html.match(/Author[\s\S]{0,200}?\/p\/([^/"]+)\//);
-    return m ? `${m[1]}@mozilla.com` : null;
+    const u = html.match(/Author[\s\S]{0,200}?\/p\/([^/"]+)\//)?.[1];
+    return u ? `${u}@mozilla.com` : null;
   });
 
 // Revision title normalised for matching: strip leading "D{n} " identifier, then apply
@@ -181,17 +181,15 @@ async function resolveLinks(revision) {
 
   // Fallback: use the already-in-flight hg parent fetch.
   const desc = await hgDescPromise;
-  if (!desc) return null;
-  const hgLinks = extractLinks(desc);
-  return hgLinks ? enrich(hgLinks, [desc.split('\n')[0]]) : null;
+  return desc ? enrich(extractLinks(desc), [desc.split('\n')[0]]) : null;
 }
+
+const bugRe = n => new RegExp(`\\bBug\\s+${n}\\b`, "i");
 
 function filterPushes(pushes, dNumber, bugNumber) {
   if (dNumber)   return pushes.filter(p => pushComments(p).includes(phabNeedle(dNumber)));
-  if (bugNumber && /^\d+$/.test(bugNumber)) {
-    const re = new RegExp(`\\bBug\\s+${bugNumber}\\b`, "i");
-    return pushes.filter(p => re.test(pushComments(p)));
-  }
+  if (bugNumber && /^\d+$/.test(bugNumber))
+    return pushes.filter(p => bugRe(bugNumber).test(pushComments(p)));
   return [];
 }
 
@@ -218,6 +216,11 @@ function registerInFlight(map, key, promise) {
   return promise;
 }
 
+// Return the in-flight promise for key if one exists; otherwise call fn(), register
+// its promise, and return it. fn() is only called when the key is absent (lazy).
+const withInFlight = (map, key, fn) =>
+  map.get(key) ?? registerInFlight(map, key, fn());
+
 // --- Persistent author-push store ---
 // Keeps the full author push list in browser.storage.local so it survives
 // browser restarts and accumulates history beyond the per-request fetch limit.
@@ -229,11 +232,14 @@ const AUTHOR_CACHE_FRESH_SECS = 120;
 // Deduplicates concurrent getAuthorPushes calls for the same author (e.g. from
 // doFetchMulti which calls doFetch in parallel for each D-number).
 const authorInFlight = new Map();
+// Deduplicates concurrent recent-push discovery fetches across parallel per-D doFetch calls.
+const recentPushesInFlight = new Map();
 
-async function getAuthorPushes(author) {
-  if (authorInFlight.has(author)) return authorInFlight.get(author);
+const getRecentPushes = count =>
+  withInFlight(recentPushesInFlight, String(count), () => fetchTryPushes({ count }));
 
-  const promise = (async () => {
+function getAuthorPushes(author) {
+  return withInFlight(authorInFlight, author, async () => {
     const key = `push-store:${author}`;
     const nowSecs = Math.floor(Date.now() / 1000);
 
@@ -243,32 +249,31 @@ async function getAuthorPushes(author) {
 
     // Fetch only pushes since the last successful fetch (minus a 1-hour buffer).
     // On first use, fetch up to 1000 to maximise initial history.
-    const fresh = await fetchTryPushes(
-      stored
-        ? { author, count: DEFAULT_PUSH_COUNT, since: stored.fetchedAt - ONE_HOUR_SECS }
-        : { author, count: INITIAL_AUTHOR_PUSH_COUNT }
-    );
+    const fresh = await fetchTryPushes({
+      author,
+      count: stored ? DEFAULT_PUSH_COUNT : INITIAL_AUTHOR_PUSH_COUNT,
+      ...(stored && { since: stored.fetchedAt - ONE_HOUR_SECS }),
+    });
 
     const all = mergePushes(fresh, stored?.pushes ?? []);
     await safely(() => browser.storage.local.set({ [key]: { pushes: all, fetchedAt: nowSecs } }));
     return all;
-  })();
-
-  return registerInFlight(authorInFlight, author, promise);
+  });
 }
 
 // --- Concurrency helper ---
 
-async function mapCapped(items, fn, cap = ENRICH_CONCURRENCY) {
+async function mapCapped(items, fn, cap = ENRICH_CONCURRENCY, onProgress) {
   const results = [];
   let i = 0;
   const next = async () => {
     while (i < items.length) {
       const idx = i++;
       results[idx] = await safely(() => fn(items[idx]));
+      onProgress?.();
     }
   };
-  await Promise.all(Array.from({ length: Math.min(cap, items.length) }, next));
+  await Promise.all(Array.from({ length: Math.min(cap, items.length) }, () => next()));
   return results.filter(r => r != null);
 }
 
@@ -299,7 +304,6 @@ function saveHgCache(key, value) {
     })));
 }
 
-
 // Fetch JSON from hg.mozilla.org, following any CDN redirect automatically.
 // The Accept: application/json header is required — it changes the CDN cache key
 // and ensures the redirected response includes CORS headers.
@@ -308,12 +312,11 @@ const fetchHgJson = path => safely(() =>
     .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
 );
 
-// Fetch the parent commit description in one request using hg's ~1 (parent) syntax,
-// avoiding the two-step tip→parent chain.
+// Fetch the parent commit description for a single revision (used by resolveLinks).
 async function fetchHgParentDesc(revision) {
   if (!HEX_RE.test(revision)) return null;
   await loadHgCache();
-  const cacheKey = `~${revision}`;  // synthetic key: "parent desc of revision"
+  const cacheKey = `~${revision}`;
   if (hgRevCache.has(cacheKey)) return hgRevCache.get(cacheKey);
   const data  = await fetchHgJson(`/json-log?rev=${revision}~1&limit=1`);
   const entry = data?.entries?.[0];
@@ -323,28 +326,46 @@ async function fetchHgParentDesc(revision) {
     if (entry.node) saveHgCache(entry.node, { desc: desc ?? "", parents: [] });
     return desc;
   }
-  hgRevCache.set(cacheKey, null);  // cache miss so we don't retry on next call
+  hgRevCache.set(cacheKey, null);
   return null;
 }
 
-async function findMatchesByParentCommit(pushes, dNumber, exclude = new Set()) {
-  const needle = phabNeedle(dNumber);
-  const recent = pushes
+// A push is mach-try-auto if no commit subject contains a Differential Revision URL.
+// Only these need a parent-walk; D-number pushes are already matched by filterPushes.
+const isMachTryAuto = push => !revisionSubjects(push).some(s => /\/D\d+/.test(s));
+
+async function findMatchesByParentCommit(pushes, dNumber, bugNumber, exclude = new Set(), onStart) {
+  const dNeedle   = dNumber   ? phabNeedle(dNumber) : null;
+  const bugNeedle = bugNumber ? bugRe(bugNumber)    : null;
+  const matchesDesc = desc => desc && (
+    (dNeedle   && desc.includes(dNeedle)) ||
+    (bugNeedle && bugNeedle.test(desc))
+  );
+
+  // Walk only mach-try-auto candidates — this typically reduces the pool from ~1000 to ~5-20.
+  const candidates = pushes
     .toSorted((a, b) => b.push_timestamp - a.push_timestamp)
-    .filter(p => !exclude.has(p.id))
-    .slice(0, MAX_PARENT_WALK_PUSHES);
-  return mapCapped(recent, async push => {
-    const desc = await fetchHgParentDesc(push.revision);
-    return desc?.includes(needle) ? push : undefined;
-  }, PARENT_WALK_CONCURRENCY);
+    .filter(p => !exclude.has(p.id) && isMachTryAuto(p))
+    .slice(0, MAX_WALK_CANDIDATES);
+
+  if (!candidates.length) return [];
+  onStart?.();
+
+  return (await mapCapped(candidates, async p => {
+    const desc = await fetchHgParentDesc(p.revision);
+    return matchesDesc(desc) ? p : null;
+  }, PARENT_WALK_CONCURRENCY)).filter(Boolean);
 }
 
-// --- Push merging ---
+// --- Push merging / id helpers ---
 
 function mergePushes(...arrays) {
   const seen = new Set();
   return arrays.flat().filter(p => !seen.has(p.id) && seen.add(p.id));
 }
+
+const plural = (n, suffix = "s") => n === 1 ? "" : suffix;
+const ids    = (...groups)       => new Set(groups.flat().map(p => p.id));
 
 // --- Stored settings ---
 
@@ -358,62 +379,83 @@ const getDTitle = dNum =>
 
 const inFlight = new Map();
 
-async function doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey) {
-  let allMatches, authorPushes;
+async function doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey, reportProgress, onWalkProgress, skipEnrich = false) {
+  let allMatches = [], authorPushes;
+  let walkAuthor = effectiveAuthor ?? "unknown author";
+
+  // In aggregate mode (doFetchMulti parallel sub-calls), suppress per-D say() noise —
+  // onWalkProgress handles the only user-visible output for these calls.
+  const silent = !reportProgress && !!onWalkProgress;
+  const say = (msg, done, total) => { if (!silent) reportProgress?.(msg, done, total); };
+
+  // Switches to a newly discovered author: updates walkAuthor, fetches their history.
+  const useAuthor = async email => {
+    walkAuthor = email;
+    say(`Fetching push history for ${email}\u2026`);
+    authorPushes = await getAuthorPushes(email);
+  };
 
   if (effectiveAuthor) {
-    authorPushes = await getAuthorPushes(effectiveAuthor);
+    await useAuthor(effectiveAuthor);
     allMatches = filterPushes(authorPushes, dNumber, bugNumber);
-  } else {
-    const recentPushes  = await fetchTryPushes({ count: DEFAULT_PUSH_COUNT });
+  }
+
+  // When no effectiveAuthor was available, or the guessed author (from phabAuthor())
+  // produced no direct matches — which happens for non-Mozilla contributors whose
+  // Treeherder email differs from their Phabricator username — fall back to scanning
+  // recent pushes to discover the real author.
+  if (!effectiveAuthor || (allMatches.length === 0 && dNumber)) {
+    say("Searching recent try pushes\u2026");
+    const recentPushes  = await getRecentPushes(DEFAULT_PUSH_COUNT);
     const recentMatches = filterPushes(recentPushes, dNumber, bugNumber)
       .filter(p => p.author?.includes("@"));
 
     const realEmail = recentMatches[0]?.author;
-    if (realEmail) authorPushes = await getAuthorPushes(realEmail);
-    allMatches = realEmail
-      ? mergePushes(filterPushes(authorPushes, dNumber, bugNumber), recentMatches)
-      : recentMatches;
-
-    // When no direct match was found (e.g. mach-try-auto commits), use the recent
-    // pushes as the candidate pool for the hg parent-walk below.
-    if (!authorPushes && dNumber) authorPushes = recentPushes;
+    if (realEmail && realEmail !== effectiveAuthor) {
+      await useAuthor(realEmail);
+      allMatches = mergePushes(filterPushes(authorPushes, dNumber, bugNumber), recentMatches);
+    } else if (!effectiveAuthor) {
+      // No author and no recent match — recentMatches is our best pool; use it as
+      // walk candidates too when searching by D-number.
+      allMatches = recentMatches;
+      if (dNumber) authorPushes = recentPushes;
+    }
   }
 
-  // Also check recent unmatched pushes via hg parent-walk to catch mach-try-auto runs.
-  if (dNumber && authorPushes?.length) {
-    const exclude      = new Set(allMatches.map(p => p.id));
-    const parentWalked = await findMatchesByParentCommit(authorPushes, dNumber, exclude);
+  // Walk parent commits only when direct search found nothing — if filterPushes already
+  // returned matches the developer pushes with D-numbers in their commits and the walk
+  // would add nothing while costing one hg fetch per mach-try-auto candidate.
+  // Also covers bug-number-only searches: mach-try-auto tip commits say "try: …" while
+  // the parent patch commit contains "Bug N".
+  if ((dNumber || bugNumber) && authorPushes?.length && allMatches.length === 0) {
+    const walkFor = who => (pushes, excl) =>
+      findMatchesByParentCommit(pushes, dNumber, bugNumber, excl,
+        onWalkProgress ?? (() => say(`Checking parent commits for ${who}\u2026`)));
 
-    // When no effectiveAuthor was available we used recent pushes (limited pool).
-    // If the parent-walk found a match, we now know the real author — fetch their
-    // full push history and walk again to catch any older pushes that were missed.
+    const parentWalked = await walkFor(walkAuthor)(authorPushes, ids(allMatches));
+
+    // When no effectiveAuthor we used recent pushes (limited pool). If the walk found
+    // a match we now know the real author — fetch their full history and walk again.
+    let extra = [];
     if (!effectiveAuthor && parentWalked.length) {
-      const discoveredEmail = parentWalked[0]?.author;
-      if (discoveredEmail) {
-        const discoveredPushes = await getAuthorPushes(discoveredEmail);
-        const exclude2         = new Set([...allMatches, ...parentWalked].map(p => p.id));
-        const moreMatches      = await findMatchesByParentCommit(discoveredPushes, dNumber, exclude2);
-        allMatches = mergePushes(allMatches, parentWalked, moreMatches);
-      } else {
-        allMatches = mergePushes(allMatches, parentWalked);
+      const email = parentWalked[0]?.author;
+      if (email) {
+        say(`Fetching full push history for ${email}\u2026`);
+        extra = await walkFor(email)(await getAuthorPushes(email), ids(allMatches, parentWalked));
       }
-    } else {
-      allMatches = mergePushes(allMatches, parentWalked);
     }
+    allMatches = mergePushes(allMatches, parentWalked, extra);
   }
 
   allMatches.sort((a, b) => b.push_timestamp - a.push_timestamp);
 
-  const enriched = await mapCapped(allMatches, async push => ({
-    id: push.id,
-    revision: push.revision,
-    push_timestamp: push.push_timestamp,
-    author: push.author,
-    treeherder_url: `${TREEHERDER_BASE}/jobs?repo=try&revision=${push.revision}`,
-    health: await safely(() => fetchPushHealthSummary(push.revision)),
-  }), ENRICH_CONCURRENCY);
+  // When called from doFetchMulti, skip enrichment here — doFetchMulti enriches the merged
+  // result centrally so the total is known before the first health fetch starts.
+  if (skipEnrich) return { pushes: allMatches };
 
+  const total = allMatches.length;
+  if (total) reportProgress?.(`Found ${total} push${plural(total, "es")}, loading health data\u2026`, 0, total);
+  const enriched = await enrichPushes(allMatches, reportProgress);
   cacheSet(cacheKey, enriched);
   return { pushes: enriched };
 }
@@ -425,7 +467,8 @@ function withCacheAndInFlight(cacheKey, force, fn) {
   if (!force) {
     const cached = cacheGet(cacheKey);
     if (cached) return { pushes: cached };
-    if (inFlight.has(cacheKey)) return inFlight.get(cacheKey);
+    const inflight = inFlight.get(cacheKey);
+    if (inflight) return inflight;
   }
   return registerInFlight(inFlight, cacheKey, fn());
 }
@@ -452,15 +495,39 @@ async function labelUntagged(pushes, dNumbers) {
   return pushes.map(p => relabeled.get(p.id) ?? p);
 }
 
-async function doFetchMulti(effectiveAuthor, dNumbers, bugNumber, cacheKey) {
+async function enrichPushes(pushes, reportProgress) {
+  let done = 0;
+  return mapCapped(pushes, async ({ id, revision, push_timestamp, author }) => ({
+    id, revision, push_timestamp, author,
+    treeherder_url: `${TREEHERDER_BASE}/jobs?repo=try&revision=${revision}`,
+    health: await safely(() => fetchPushHealthSummary(revision)),
+  }), ENRICH_CONCURRENCY, () => reportProgress?.(`Loading health data (${++done}/${pushes.length})\u2026`, done, pushes.length));
+}
+
+async function doFetchMulti(effectiveAuthor, dNumbers, bugNumber, cacheKey, reportProgress) {
+  const n = dNumbers.length;
+  const prefix = `Searching ${n} revision${plural(n)}${effectiveAuthor ? ` for ${effectiveAuthor}` : ""}`;
+  let searchesDone = 0;
+  reportProgress?.(`${prefix}\u2026`, 0, n);
+
+  const onSearchDone  = reportProgress ? () => reportProgress(`${prefix}\u2026`, ++searchesDone, n)  : undefined;
+  const onWalkProgress = reportProgress ? () => reportProgress(`Checking parent commits\u2026`) : undefined;
+
+  // Run all searches in parallel with enrichment skipped — so the merged total is
+  // known before the first health fetch starts, giving accurate N/M progress.
+  const subFetch = (d, onDone) =>
+    safely(() => doFetch(effectiveAuthor, d, bugNumber,
+      `${effectiveAuthor ?? ""}:${d ?? ""}:${bugNumber ?? ""}`,
+      undefined, onWalkProgress, true))
+    .then(r => { onDone?.(); return r ?? { pushes: [] }; });
+
   const [perD, perBug] = await Promise.all([
-    Promise.all(dNumbers.map(d =>
-      safely(() => doFetch(effectiveAuthor, d, bugNumber, `${effectiveAuthor ?? ""}:${d}:${bugNumber ?? ""}`))
-        .then(r => r ?? { pushes: [] }))),
-    safely(() => doFetch(effectiveAuthor, null, bugNumber, `${effectiveAuthor ?? ""}::${bugNumber ?? ""}`))
-      .then(r => r ?? { pushes: [] }),
+    Promise.all(dNumbers.map(d => subFetch(d, onSearchDone))),
+    subFetch(null),
   ]);
-  // Label per-D pushes, then merge with bug-only pushes (dedup keeps labeled version first).
+
+  // Label, merge, sort — all on raw (un-enriched) pushes.
+  reportProgress?.(`Labeling revisions\u2026`);
   const merged = await labelUntagged(
     mergePushes(
       ...perD.map((r, i) => r.pushes.map(p => ({ ...p, dNumber: dNumbers[i] }))),
@@ -469,30 +536,53 @@ async function doFetchMulti(effectiveAuthor, dNumbers, bugNumber, cacheKey) {
     dNumbers,
   );
   merged.sort((a, b) => b.push_timestamp - a.push_timestamp);
-  cacheSet(cacheKey, merged);
-  return { pushes: merged };
+
+  // Enrich centrally: total is now known so N/M is accurate from the first callback.
+  const total = merged.length;
+  if (total) reportProgress?.(`Loading health data\u2026`, 0, total);
+  const enriched = await enrichPushes(merged, reportProgress);
+  cacheSet(cacheKey, enriched);
+  return { pushes: enriched };
 }
 
-async function handleGetTryPushes({ author, dNumber, dNumbers, bugNumber, force }) {
-  // Prefer the Phabricator revision author when a D-number is available — they are
-  // the actual try pusher regardless of who is browsing. Fall back to stored email
-  // (user's own setting) or the content-script hint for bug-number-only searches.
-  const storedEmail    = await getStoredEmail();
-  const phabRevAuthor  = dNumber  ? await safely(() => phabAuthor(dNumber))
-                       : dNumbers ? await safely(() => phabAuthor(dNumbers[0]))
-                       : null;
-  const effectiveAuthor = phabRevAuthor || storedEmail || author || null;
+async function handleGetTryPushes({ author, dNumber, dNumbers, bugNumber, force }, reportProgress) {
+  reportProgress?.("Identifying revision author\u2026");
+  const repD = dNumber ?? dNumbers?.[0];
+
+  // Run stored-email lookup and Bugzilla creator fetch in parallel — both are independent.
+  const [storedEmail, bugzillaCreator] = await Promise.all([
+    getStoredEmail(),
+    (bugNumber && repD)
+      ? safely(async () => {
+          const data = await fetchJson(
+            `${BUGZILLA_BASE}/rest/bug/${bugNumber}/attachment?include_fields=file_name,is_obsolete,creator`
+          );
+          const att = (data?.bugs?.[bugNumber] ?? []).find(
+            a => !a.is_obsolete && a.file_name === `phabricator-D${repD}-url.txt`
+          );
+          return att?.creator ?? null;
+        })
+      : null,
+  ]);
+
+  // `author` is getAuthorHint() from the Phabricator content script — same
+  // username→email heuristic as phabAuthor() but free (DOM already loaded).
+  // Only call phabAuthor() as a last resort when no cheaper source is available.
+  const phabRevAuthor  = bugzillaCreator
+                       || author
+                       || (repD ? await safely(() => phabAuthor(repD)) : null);
+  const effectiveAuthor = phabRevAuthor || storedEmail || null;
 
   // Multiple D-numbers (bug with several revisions): fetch per D-number, merge and label.
   if (dNumbers?.length >= 2) {
     const cacheKey = `${effectiveAuthor ?? ""}:multi:${[...dNumbers].sort().join(",")}:${bugNumber ?? ""}`;
     return withCacheAndInFlight(cacheKey, force,
-      () => doFetchMulti(effectiveAuthor, dNumbers, bugNumber, cacheKey));
+      () => doFetchMulti(effectiveAuthor, dNumbers, bugNumber, cacheKey, reportProgress));
   }
 
   const cacheKey = `${effectiveAuthor ?? ""}:${dNumber ?? ""}:${bugNumber ?? ""}`;
   return withCacheAndInFlight(cacheKey, force,
-    () => doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey));
+    () => doFetch(effectiveAuthor, dNumber, bugNumber, cacheKey, reportProgress));
 }
 
 browser.runtime.onMessage.addListener((msg, _sender) => {
@@ -506,6 +596,23 @@ browser.runtime.onMessage.addListener((msg, _sender) => {
     hgCacheLoad = null;  // force reload from storage on next use
     return Promise.resolve({ ok: true });
   }
+});
+
+// Port-based handler: like getTryPushes but streams progress messages back.
+browser.runtime.onConnect.addListener(port => {
+  if (port.name !== "getTryPushes") return;
+  port.onMessage.addListener(async msg => {
+    const report = (m, done, total) => {
+      console.log("[phab-try] progress:", m);
+      safely(() => port.postMessage({ type: "progress", message: m, done, total }));
+    };
+    try {
+      const result = await handleGetTryPushes(msg, report);
+      port.postMessage({ type: "result", pushes: result.pushes });
+    } catch (e) {
+      port.postMessage({ type: "error", message: e.message });
+    }
+  });
 });
 
 // Keep the service worker alive so content-script messages are never dropped.

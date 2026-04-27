@@ -6,16 +6,13 @@
 (function () {
   "use strict";
 
-  function getDNumber() {
-    const m = window.location.pathname.match(/\/D(\d+)/);
-    return m ? m[1] : null;
-  }
+  const getDNumber = () => window.location.pathname.match(/\/D(\d+)/)?.[1] ?? null;
 
   function getBugNumber() {
     for (const src of [document.title,
                        document.querySelector(".phui-header-header")?.textContent ?? ""]) {
-      const m = src.match(/\bBug\s+(\d+)/i);
-      if (m) return m[1];
+      const n = src.match(/\bBug\s+(\d+)/i)?.[1];
+      if (n) return n;
     }
     return null;
   }
@@ -28,12 +25,12 @@
 
   function getAuthorHint() {
     for (const link of document.querySelectorAll("a[href^='/p/']")) {
-      const m = link.getAttribute("href").match(/^\/p\/([^/]+)\//);
-      if (!m) continue;
+      const u = link.getAttribute("href").match(/^\/p\/([^/]+)\//)?.[1];
+      if (!u) continue;
       let node = link.parentElement;
       for (let depth = 0; depth < AUTHOR_HINT_MAX_DEPTH && node && node !== document.body; depth++) {
         if (node.textContent.length < AUTHOR_HINT_MAX_TEXT && /\bauthor/i.test(node.textContent))
-          return `${m[1]}@mozilla.com`;
+          return `${u}@mozilla.com`;
         node = node.parentElement;
       }
     }

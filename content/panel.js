@@ -67,9 +67,10 @@
   function statusSummary(health) {
     if (!health?.status) return null;
     const s = health.status;
-    const total = (s.completed || 0) + (s.pending || 0) + (s.running || 0);
+    const c = s.completed || 0;
+    const total = c + (s.pending || 0) + (s.running || 0);
     const parts = [];
-    if (total) parts.push(`${s.completed || 0}/${total} completed`);
+    if (total) parts.push(`${c}/${total} completed`);
     for (const [key, label] of [
       ["testfailed", "failed"], ["busted", "busted"],
       ["exception", "exception"], ["running", "running"], ["pending", "pending"],
@@ -201,9 +202,12 @@
 
     const resetTitle = () => setTitle("Try Pushes");
 
-    function setLoading(message) {
+    function setLoading(message, done, total) {
       resetTitle();
-      stateRow(list, message, "greytext pt-state-loading");
+      const row = stateRow(list, message, "greytext pt-state-loading");
+      const bar = el("progress");
+      if (done !== undefined && total > 0) { bar.max = total; bar.value = done; }
+      row.append(bar);
     }
 
     function setError(message) {
