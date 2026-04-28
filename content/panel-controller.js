@@ -40,7 +40,7 @@ function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) 
     load(true);
   }
 
-  const ctrl = panelFactory(reload);
+  const ctrl = panelFactory(reload, payload);
   ctrl.setLoading(LOADING_MSG);
 
   const anchor = findAnchor();

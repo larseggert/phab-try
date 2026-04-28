@@ -53,10 +53,19 @@ window.ptCreateBugzillaPanel = (function () {
   const bzLink = (cls, text, href) =>
     Object.assign(el("a", cls, text), { href, target: "_blank", rel: "noopener noreferrer" });
 
+  const dLink = d => bzLink("pt-bz-d-label", `D${d}`, `${PHAB_BASE}/D${d}`);
+
+  const buildRevCell = push => {
+    if (push.dNumbers)
+      return nest(el("td", "pt-bz-rev"),
+        ...push.dNumbers.flatMap((d, i) => i === 0 ? [dLink(d)] : [", ", dLink(d)]));
+    if (push.dNumber)
+      return nest(el("td", "pt-bz-rev"), dLink(push.dNumber));
+    return el("td", "pt-bz-rev");
+  };
+
   const buildPushRow = (push, showRevCol) => nest(el("tr"),
-    ...(showRevCol ? [push.dNumber
-      ? nest(el("td", "pt-bz-rev"), bzLink("pt-bz-d-label", `D${push.dNumber}`, `${PHAB_BASE}/D${push.dNumber}`))
-      : el("td", "pt-bz-rev")] : []),
+    ...(showRevCol ? [buildRevCell(push)] : []),
     nest(el("td", "pt-bz-time"), bzRelTime(push.push_timestamp)),
     nest(el("td", "pt-bz-hash"), bzLink(null, shortRev(push.revision), push.treeherder_url)),
     ...ptMetrics.map(([label, key]) => buildMetricCell(label, ptResolveMetricResult(push, key))),

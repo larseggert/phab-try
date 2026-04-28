@@ -132,7 +132,7 @@
   // Timestamp and hash are in the SAME flex container so they align
   // automatically — no float/float-adjacent positioning issues.
 
-  function buildPushRow(push) {
+  function buildPushRow(push, currentDNum) {
     const item = el("div", "pt-push-item");
     item.dataset.revision = push.revision;
 
@@ -151,6 +151,23 @@
 
     const summary = statusSummary(push.health);
     if (summary) item.append(el("div", "pt-push-note greytext", summary));
+
+    const siblings = currentDNum
+      ? (push.stackDNums ?? []).filter(d => d !== currentDNum)
+      : [];
+    if (siblings.length) {
+      const note = el("div", "pt-push-note greytext");
+      note.append("Also covers: ");
+      siblings.forEach((d, i) => {
+        if (i > 0) note.append(", ");
+        const a = el("a", null, `D${d}`);
+        a.href = `${window.ptPhabBase}/D${d}`;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        note.append(a);
+      });
+      item.append(note);
+    }
 
     return item;
   }
@@ -197,7 +214,7 @@
 
   window.ptIsRunning = isRunning;
 
-  window.ptCreatePanel = function (onReload) {
+  window.ptCreatePanel = function (onReload, { dNumber: currentDNum } = {}) {
     const { panel, list, setTitle } = buildShell(onReload);
 
     const resetTitle = () => setTitle("Try Pushes");
@@ -219,7 +236,7 @@
     function setPushes(pushes) {
       setTitle(titleFor(pushes));
       if (pushes.length)
-        list.replaceChildren(...pushes.map(buildPushRow));
+        list.replaceChildren(...pushes.map(p => buildPushRow(p, currentDNum)));
       else stateRow(list, window.ptNoTryPushesMsg, "greytext pt-state-error");
     }
 
