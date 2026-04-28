@@ -46,11 +46,17 @@
 
   // Finds all Phabricator revision attachments via comment-section schema.org metadata.
   // Works for all users (unlike #module-phabricator-revisions-content which requires login).
+  // Also extracts the creator email from the attachments table row (BMO renders it with
+  // data-user-email) so the background can skip a Bugzilla API round-trip.
   function getPhabAttachments() {
     return [...document.querySelectorAll(".attachment[data-id]")].flatMap(el => {
       const dNumber = el.querySelector('meta[itemprop="name"]')?.content
         ?.match(PHAB_ATTACHMENT_RE)?.[1];
-      return dNumber ? [{ attachmentId: el.dataset.id, dNumber }] : [];
+      if (!dNumber) return [];
+      const attachmentId = el.dataset.id;
+      const row = document.querySelector(`#attachments tr[data-attachment-id="${attachmentId}"]`);
+      const creator = row?.querySelector("a[data-user-email]")?.dataset?.userEmail ?? null;
+      return [{ attachmentId, dNumber, creator }];
     });
   }
 
@@ -88,12 +94,18 @@
     const dNums  = attachments.map(a => a.dNumber);
     const author = getAssigneeEmail();
 
+    // Pass the DOM-extracted creator for the representative revision so the background
+    // can skip its Bugzilla attachment API call entirely.
+    // When dNums is empty, dNums[0] is undefined; find() returns undefined → null → not sent.
+    const repCreator = attachments.find(a => a.dNumber === dNums[0])?.creator ?? null;
+
     const payload = {
       bugNumber,
       ...(dNums.length >= 2 ? { dNumbers: dNums } : dNums.length ? { dNumber: dNums[0] } : {}),
       // Only hint the assignee email when there's no D-number — the assignee may not
       // be the try pusher, and the D-number path can auto-discover the real author.
       ...(dNums.length === 0 && author && { author }),
+      ...(repCreator && { bugzillaCreator: repCreator }),
     };
     initTryPanel(payload, findInsertionPoint, window.ptCreateBugzillaPanel);
   }

@@ -56,8 +56,15 @@
     const dNumber = getDNumber();
     if (!dNumber) return;
     const author = getAuthorHint();
+    // Extract the revision title from document.title (already decoded, no fetch needed).
+    // The background primes its title cache with this so getDTitle/labelUntagged get a
+    // free hit for this D-number during the same browser session.
+    // Keep this regex in sync with extractPhabTitle() in background.js.
+    const revisionTitle = document.title
+      .replace(/\s*[-–—·•]\s*(Differential\s*[-–—·•]\s*)?Phabricator\s*$/i, "")
+      .trim() || null;
     initTryPanel(
-      { dNumber, bugNumber: getBugNumber(), ...(author && { author }) },
+      { dNumber, bugNumber: getBugNumber(), ...(author && { author }), ...(revisionTitle && { revisionTitle }) },
       findInsertionPoint,
     );
   }

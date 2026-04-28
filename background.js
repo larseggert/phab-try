@@ -113,9 +113,17 @@ const phabAuthor = dNum =>
 
 // Revision title normalised for matching: strip leading "D{n} " identifier, then apply
 // the same subject normalisation used for commit lines (Bug prefix, r= suffix, lowercase).
-const phabTitle = dNum =>
-  fetchPhabHtml(dNum).then(html =>
-    normalizeSubject(extractPhabTitle(html)?.replace(/^D\d+\s+/i, "")) || null);
+// Title cache primed by content scripts that already have the Phabricator page loaded.
+// Avoids fetching the Phabricator HTML just for the title (getDTitle, labelUntagged).
+const phabPageTitleCache = new Map();
+
+const phabTitle = dNum => {
+  const cached = phabPageTitleCache.get(dNum);
+  return cached !== undefined
+    ? Promise.resolve(normalizeSubject(cached.replace(/^D\d+\s+/i, "")) || null)
+    : fetchPhabHtml(dNum).then(html =>
+        normalizeSubject(extractPhabTitle(html)?.replace(/^D\d+\s+/i, "")) || null);
+};
 
 // True if the normalized D-revision title overlaps with any of the commit subjects.
 // Require a minimum length to avoid false positives from very short titles (e.g. "fix").
@@ -374,8 +382,12 @@ const getStoredEmail = () =>
 
 // --- Message handler ---
 
-const getDTitle = dNum =>
-  fetchPhabHtml(dNum).then(html => ({ title: extractPhabTitle(html) }));
+const getDTitle = dNum => {
+  const cached = phabPageTitleCache.get(dNum);
+  return cached !== undefined
+    ? Promise.resolve({ title: cached })
+    : fetchPhabHtml(dNum).then(html => ({ title: extractPhabTitle(html) }));
+};
 
 const inFlight = new Map();
 
@@ -497,10 +509,17 @@ async function labelUntagged(pushes, dNumbers) {
 
 async function enrichPushes(pushes, reportProgress) {
   let done = 0;
-  return mapCapped(pushes, async ({ id, revision, push_timestamp, author }) => ({
-    id, revision, push_timestamp, author,
-    treeherder_url: `${TREEHERDER_BASE}/jobs?repo=try&revision=${revision}`,
-    health: await safely(() => fetchPushHealthSummary(revision)),
+  return mapCapped(pushes, async (push) => ({
+    id:            push.id,
+    revision:      push.revision,
+    push_timestamp: push.push_timestamp,
+    author:        push.author,
+    treeherder_url: `${TREEHERDER_BASE}/jobs?repo=try&revision=${push.revision}`,
+    health:        await safely(() => fetchPushHealthSummary(push.revision)),
+    // All D-numbers present in any commit of this push (used to surface stack siblings).
+    stackDNums:    extractLinks(pushComments(push))?.dNums ?? [],
+    ...(push.dNumber  !== undefined && { dNumber:  push.dNumber }),
+    ...(push.dNumbers !== undefined && { dNumbers: push.dNumbers }),
   }), ENRICH_CONCURRENCY, () => reportProgress?.(`Loading health data (${++done}/${pushes.length})\u2026`, done, pushes.length));
 }
 
@@ -528,13 +547,30 @@ async function doFetchMulti(effectiveAuthor, dNumbers, bugNumber, cacheKey, repo
 
   // Label, merge, sort — all on raw (un-enriched) pushes.
   reportProgress?.(`Labeling revisions\u2026`);
-  const merged = await labelUntagged(
-    mergePushes(
-      ...perD.map((r, i) => r.pushes.map(p => ({ ...p, dNumber: dNumbers[i] }))),
-      perBug.pushes,
-    ),
-    dNumbers,
+
+  // Build a map of push.id → all D-numbers that independently found it.
+  // A push found by multiple D sub-fetches is a stack try push.
+  const dsByPushId = new Map();
+  for (const [i, { pushes }] of perD.entries()) {
+    for (const p of pushes) {
+      const s = dsByPushId.get(p.id) ?? new Set();
+      s.add(dNumbers[i]);
+      dsByPushId.set(p.id, s);
+    }
+  }
+
+  const rawMerged = mergePushes(
+    ...perD.map((r, i) => r.pushes.map(p => ({ ...p, dNumber: dNumbers[i] }))),
+    perBug.pushes,
   );
+
+  // Annotate pushes found by more than one D with a dNumbers array.
+  const annotated = rawMerged.map(p => {
+    const ds = dsByPushId.get(p.id);
+    return ds?.size > 1 ? { ...p, dNumbers: [...ds].sort() } : p;
+  });
+
+  const merged = await labelUntagged(annotated, dNumbers);
   merged.sort((a, b) => b.push_timestamp - a.push_timestamp);
 
   // Enrich centrally: total is now known so N/M is accurate from the first callback.
@@ -545,24 +581,31 @@ async function doFetchMulti(effectiveAuthor, dNumbers, bugNumber, cacheKey, repo
   return { pushes: enriched };
 }
 
-async function handleGetTryPushes({ author, dNumber, dNumbers, bugNumber, force }, reportProgress) {
+async function handleGetTryPushes({ author, dNumber, dNumbers, bugNumber, force,
+                                     bugzillaCreator: domCreator, revisionTitle }, reportProgress) {
   reportProgress?.("Identifying revision author\u2026");
   const repD = dNumber ?? dNumbers?.[0];
 
-  // Run stored-email lookup and Bugzilla creator fetch in parallel — both are independent.
+  // Prime the title cache from the DOM-supplied title (Phabricator content script sends
+  // document.title which is already decoded — no network fetch needed).
+  if (revisionTitle && dNumber) phabPageTitleCache.set(dNumber, revisionTitle);
+
+  // Run stored-email lookup and (if needed) Bugzilla creator fetch in parallel.
+  // If the Bugzilla content script already extracted the creator from the DOM, skip the API call.
   const [storedEmail, bugzillaCreator] = await Promise.all([
     getStoredEmail(),
-    (bugNumber && repD)
-      ? safely(async () => {
-          const data = await fetchJson(
-            `${BUGZILLA_BASE}/rest/bug/${bugNumber}/attachment?include_fields=file_name,is_obsolete,creator`
-          );
-          const att = (data?.bugs?.[bugNumber] ?? []).find(
-            a => !a.is_obsolete && a.file_name === `phabricator-D${repD}-url.txt`
-          );
-          return att?.creator ?? null;
-        })
-      : null,
+    domCreator
+      ?? ((bugNumber && repD)
+        ? safely(async () => {
+            const data = await fetchJson(
+              `${BUGZILLA_BASE}/rest/bug/${bugNumber}/attachment?include_fields=file_name,is_obsolete,creator`
+            );
+            const att = (data?.bugs?.[bugNumber] ?? []).find(
+              a => !a.is_obsolete && a.file_name === `phabricator-D${repD}-url.txt`
+            );
+            return att?.creator ?? null;
+          })
+        : null),
   ]);
 
   // `author` is getAuthorHint() from the Phabricator content script — same
@@ -593,6 +636,7 @@ browser.runtime.onMessage.addListener((msg, _sender) => {
     cache.clear();
     hgRevCache.clear();
     phabHtmlCache.clear();
+    phabPageTitleCache.clear();
     hgCacheLoad = null;  // force reload from storage on next use
     return Promise.resolve({ ok: true });
   }
