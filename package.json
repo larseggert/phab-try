@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.0",
-    "eslint":          "^9.0.0",
+    "eslint":          "^10.2.1",
     "globals":         "^15.0.0",
     "web-ext":         "^8.0.0"
   }
