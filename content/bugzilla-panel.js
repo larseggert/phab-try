@@ -6,71 +6,12 @@
 // Relies on panel.js being loaded first for shared utilities.
 window.ptCreateBugzillaPanel = (function () {
 
-  const { ptPhabBase: PHAB_BASE, ptFaIcon: bzIcon, ptNest: nest,
-          ptEl: el, ptWithAction: withAction, ptShortRev: shortRev,
-          ptMetrics, ptStatusSummary, ptResolveMetricResult, ptNoTryPushesMsg } = window;
-
-  // Matches Bugzilla's rel-time span pattern. bug_modal.js runs
-  // setInterval(relativeTimer, 60_000) over $('.rel-time'), so our spans
-  // are kept up-to-date automatically after the first tick.
-  const _rtf   = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
-  const _units = [
-    ["year",  365 * 86400], ["month", 30 * 86400],
-    ["day",   86400],       ["hour",  3600], ["minute", 60],
-  ];
-
-  function bzRelTime(epochSecs) {
-    const elapsed = Math.floor(Date.now() / 1000) - epochSecs;
-    const [unit, secs] = _units.find(([, s]) => elapsed >= s) ?? ["second", 1];
-    const rel = elapsed < 10 ? "Just now" : _rtf.format(-Math.round(elapsed / secs), unit);
-
-    const span = el("span", "rel-time", rel);
-    span.dataset.time = String(epochSecs);
-    span.title = new Date(epochSecs * 1000).toLocaleString(undefined, {
-      year: "numeric", month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-    return span;
-  }
-
-  // Uses Bugzilla's own phabricator.css classes (revision-status-box-* /
-  // revision-status-icon-*) so metric badges match the Phabricator Revisions table.
-  const STATUS_STYLE = {
-    pass:    { box: "accepted",       icon: "accepted"       },
-    fail:    { box: "needs-revision", icon: "needs-revision" },
-    running: { box: "needs-review",   icon: "needs-review"   },
-    pending: { box: "abandoned",      icon: "abandoned"      },
-  };
-
-  function buildMetricCell(label, result) {
-    if (!result || result === "none") return el("td", "pt-bz-metric");
-    const st = STATUS_STYLE[result.toLowerCase()] ?? STATUS_STYLE.pending;
-    return nest(el("td", "pt-bz-metric"),
-      nest(el("span", `revision-status-box-${st.box}`),
-        el("span", `revision-status-icon-${st.icon}`), el("span", null, label)));
-  }
-
-  const bzLink = (cls, text, href) =>
-    Object.assign(el("a", cls, text), { href, target: "_blank", rel: "noopener noreferrer" });
-
-  const dLink = d => bzLink("pt-bz-d-label", `D${d}`, `${PHAB_BASE}/D${d}`);
-
-  const buildRevCell = push => {
-    if (push.dNumbers)
-      return nest(el("td", "pt-bz-rev"),
-        ...push.dNumbers.flatMap((d, i) => i === 0 ? [dLink(d)] : [", ", dLink(d)]));
-    if (push.dNumber)
-      return nest(el("td", "pt-bz-rev"), dLink(push.dNumber));
-    return el("td", "pt-bz-rev");
-  };
-
-  const buildPushRow = (push, showRevCol) => nest(el("tr"),
-    ...(showRevCol ? [buildRevCell(push)] : []),
-    nest(el("td", "pt-bz-time"), bzRelTime(push.push_timestamp)),
-    nest(el("td", "pt-bz-hash"), bzLink(null, shortRev(push.revision), push.treeherder_url)),
-    ...ptMetrics.map(([label, key]) => buildMetricCell(label, ptResolveMetricResult(push, key))),
-    el("td", "pt-bz-note", ptStatusSummary(push.health)),
-  );
+  // Row markup is shared with the Phabricator panel via window.ptBuildPushRow
+  // — same <tr>/<td> structure, same pill/badge/cell classes — so both
+  // panels render identically and we only have one place to maintain.
+  const { ptFaIcon: faIcon, ptNest: nest, ptEl: el, ptWithAction: withAction,
+          ptBuildPushTable: buildPushTable, ptBuildWarning: buildWarning,
+          ptProgressBar: progressBar, ptNoTryPushesMsg } = window;
 
   return function (onReload) {
     const ID = "module-try-pushes";
@@ -87,7 +28,7 @@ window.ptCreateBugzillaPanel = (function () {
       { role: "button", tabIndex: 0, ariaExpanded: "true", ariaLabel: LABEL_EXP });
     spinner.setAttribute("aria-controls", content.id);
 
-    const reloadBtn = nest(withAction(el("a", "pt-bz-reload"), onReload), bzIcon("fas fa-sync"), " Reload");
+    const reloadBtn = nest(withAction(el("a", "pt-bz-reload"), onReload), faIcon("fas fa-sync"), " Reload");
 
     // Flex layout for header is in panel.css (#module-try-pushes .module-header)
     const section = Object.assign(el("section", "module"), { id: ID });
@@ -114,25 +55,59 @@ window.ptCreateBugzillaPanel = (function () {
     function setSubtitle(text) { subtitle.textContent = text ? `(${text})` : ""; }
     function resetTitle()      { setTitle("Try Pushes"); setSubtitle(""); }
 
-    const showMsg = (...children) => { resetTitle(); content.replaceChildren(...children); };
-    const setLoading = (msg, done, total) => {
-      const bar = el("progress");
-      if (done !== undefined && total > 0) { bar.max = total; bar.value = done; }
-      showMsg(el("p", "pt-bz-msg pt-bz-msg-loading", msg), bar);
+    // The warning banner is kept as a separate node and re-attached on each
+    // setPushes / setLoading / setError call so it persists across content
+    // replacement. It lives at the top of the module-content area.
+    let warningEl = null;
+    let statusEl = null;
+    const reattachOverlays = () => {
+      if (statusEl)  content.prepend(statusEl);
+      if (warningEl) content.prepend(warningEl);
     };
+
+    const showMsg = (...children) => {
+      resetTitle();
+      content.replaceChildren(...children);
+      reattachOverlays();
+    };
+    const setLoading = (msg, done, total) =>
+      showMsg(el("p", "pt-bz-msg pt-bz-msg-loading", msg), progressBar(done, total));
     const setError = msg => showMsg(nest(el("p", "pt-bz-msg pt-bz-msg-error", msg),
       withAction(el("a", null, " Retry"), onReload)));
 
     function setPushes(pushes) {
       setTitle(`Try Pushes (${pushes.length})`);
       setSubtitle(`${pushes.length} push${pushes.length !== 1 ? "es" : ""}`);
-      const showRevCol = pushes.some(p => p.dNumber);
       content.replaceChildren(pushes.length
-        ? nest(el("table", "layout-table"), ...pushes.map(p => buildPushRow(p, showRevCol)))
+        ? buildPushTable(pushes)
         : el("p", "pt-bz-msg pt-bz-msg-empty", ptNoTryPushesMsg));
+      reattachOverlays();
     }
 
-    const ctrl = { el: section, setLoading, setError, setPushes };
+    function setWarning(errors) {
+      const banner = buildWarning(errors);
+      if (banner) {
+        // Render as a top-level div in module-content (no <p> wrapper —
+        // the warning contains block-level elements and would break out
+        // of a paragraph parent, collapsing layout).
+        warningEl = banner;
+        reattachOverlays();
+      } else if (warningEl) {
+        warningEl.remove();
+        warningEl = null;
+      }
+    }
+
+    function setStatus(message, done, total) {
+      if (statusEl) { statusEl.remove(); statusEl = null; }
+      if (!message) return;
+      statusEl = nest(el("div", "pt-status-row pt-bz-status greytext"),
+        document.createTextNode(message + " "), progressBar(done, total));
+      reattachOverlays();
+    }
+
+    const ctrl = { el: section, setLoading, setError, setPushes, setWarning, setStatus,
+      setDInfos: window.ptSetDInfos };
     section.dataset.ptPanel = "1";
     section._ptCtrl = ctrl;
     return ctrl;

@@ -12,11 +12,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint
+  # Each check runs as its own parallel job (isolated failure UI in
+  # GitHub) but shares the same setup. fail-fast:false so one failing
+  # check doesn't cancel the others.
+  check:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Lint
+            run: npm run lint
+          - name: Test
+            run: npm run test:coverage
+          - name: Build XPI
+            # Catches manifest / file-path issues that web-ext lint
+            # doesn't flag (missing files, mis-cased paths, etc.).
+            run: npm run build
+          - name: Generated files up to date
+            # Re-run the generator and fail if anything changed —
+            # catches drift after a fontawesome-free dep bump that
+            # didn't regenerate lib/fa-icons.js (or stale icon PNGs).
+            run: |
+              npm run generate-icons
+              git diff --exit-code
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -29,8 +51,4 @@ jobs:
 
       - run: npm ci
 
-      - name: Lint JS
-        run: npm run lint:js
-
-      - name: Lint extension
-        run: npm run lint:ext
+      - run: ${{ matrix.run }}

@@ -5,16 +5,22 @@
   "private": true,
   "scripts": {
     "generate-icons": "node generate-icons.mjs",
-    "lint:js":        "eslint background.js content/",
-    "lint:ext":       "web-ext lint",
-    "lint":           "npm run lint:js && npm run lint:ext",
-    "build":          "web-ext build",
-    "sign":           "web-ext sign --channel=listed --amo-metadata=amo-metadata.json --approval-timeout=0"
+    "lint:js": "eslint background.js content/",
+    "lint:ext": "web-ext lint",
+    "lint": "npm run lint:js && npm run lint:ext",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "build": "web-ext build",
+    "sign": "web-ext sign --channel=listed --amo-metadata=amo-metadata.json --approval-timeout=0"
   },
   "devDependencies": {
+    "@fortawesome/fontawesome-free": "^7.2.0",
     "@resvg/resvg-js": "^2.6.0",
-    "eslint":          "^10.2.1",
-    "globals":         "^17.5.0",
-    "web-ext":         "^10.1.0"
+    "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^10.2.1",
+    "globals": "^17.5.0",
+    "vitest": "^3.2.4",
+    "web-ext": "^10.1.0"
   }
 }
