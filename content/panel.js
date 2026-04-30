@@ -1,5 +1,8 @@
-// Globals exported: ptCreatePanel, ptStartAutoRefresh, ptIsRunning
-//                   ptEl, ptWithAction, ptShortRev, ptMetrics, ptStatusSummary, ptResolveMetricResult, ptNoTryPushesMsg
+// Globals exported: ptCreatePanel, ptStartAutoRefresh, ptIsRunning,
+//                   ptCreateBugzillaPanel deps (ptEl/ptNest/ptWithAction/
+//                   ptFaIcon/ptBuildPushRow/ptBuildPushTable/ptBuildWarning/
+//                   ptProgressBar/ptApplyResult/ptExtLink/ptSetDInfos/
+//                   ptNoTryPushesMsg).
 
 (function () {
   "use strict";
@@ -27,6 +30,17 @@
     return node;
   }
 
+  // External-link helper lives in lib/icons.js — alias it locally for
+  // brevity at the call sites in this IIFE.
+  const extLink = window.ptExtLink;
+
+  // Determinate <progress> when done/total are valid; indeterminate otherwise.
+  function progressBar(done, total) {
+    const bar = el("progress");
+    if (done !== undefined && total > 0) { bar.max = total; bar.value = done; }
+    return bar;
+  }
+
   // visual-only + aria-hidden: Phabricator's decorative icon convention.
   function faIcon(faClass) {
     const icon = el("span", `visual-only phui-icon-view phui-font-fa ${faClass}`);
@@ -36,33 +50,50 @@
 
   // --- Data helpers ---
 
-  // screen-only/print-only mirrors Phabricator's timeline timestamp pattern.
-  function buildTimestamp(epochSecs) {
-    const d = new Date(epochSecs * 1000);
+  // Relative timestamp ("5 minutes ago" / "Just now") with the absolute
+  // local timestamp on hover via the title attr. The .rel-time class makes
+  // Bugzilla's bug_modal.js auto-tick this every 60 s on the Bugzilla
+  // panel — harmless on the Phab panel where that loop doesn't run.
+  const _rtf   = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
+  const _units = [
+    ["year",  365 * 86400], ["month", 30 * 86400],
+    ["day",   86400],       ["hour",  3600], ["minute", 60],
+  ];
+  function relTime(epochSecs) {
+    const elapsed = Math.floor(Date.now() / 1000) - epochSecs;
+    const [unit, secs] = _units.find(([, s]) => elapsed >= s) ?? ["second", 1];
+    const rel = elapsed < 10 ? "Just now" : _rtf.format(-Math.round(elapsed / secs), unit);
 
-    const screen = el("span", "screen-only");
-    screen.textContent = d.toLocaleString(undefined, {
-      weekday: "short", month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit", hour12: false,
+    const span = el("span", "rel-time", rel);
+    span.dataset.time = String(epochSecs);
+    span.title = new Date(epochSecs * 1000).toLocaleString(undefined, {
+      weekday: "short", year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      timeZoneName: "short",
     });
-
-    const pad = n => String(n).padStart(2, "0");
-    const off  = -d.getTimezoneOffset();
-    const offH = Math.floor(Math.abs(off) / 60);
-    const offM = Math.abs(off) % 60;
-    const tz   = `UTC${off >= 0 ? "+" : "-"}${offH}${offM ? `:${pad(offM)}` : ""}`;
-    const iso = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ` +
-                `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} (${tz})`;
-
-    const print = el("span", "print-only", iso);
-    print.setAttribute("aria-hidden", "true");
-
-    const frag = document.createDocumentFragment();
-    frag.append(screen, print);
-    return frag;
+    return span;
   }
 
   function shortRev(r) { return r ? r.slice(0, 8) : "?"; }
+
+  // Per-repo pill. Uses our own classes (not Phabricator's phui-tag-view
+  // markup) so we have full control over width and aren't competing with
+  // the host's combo-class rules that kept overriding our sizing.
+  // Visually still matches the phui-tag-shade aesthetic (light tinted
+  // background, dark same-hue text, soft border).
+  const REPO_PILL = {
+    "try":              { label: "try",      color: "blue"   },
+    "autoland":         { label: "autoland", color: "green"  },
+    "mozilla-central":  { label: "central",  color: "violet" },
+    "mozilla-beta":     { label: "beta",     color: "orange" },
+    "mozilla-release":  { label: "release",  color: "red"    },
+    "mozilla-esr140":   { label: "esr140",   color: "pink"   },
+    "mozilla-esr115":   { label: "esr115",   color: "indigo" },
+  };
+  function repoPill(repo) {
+    const cfg = REPO_PILL[repo] ?? { label: repo ?? "?", color: "grey" };
+    return el("span", `pt-repo-pill pt-repo-pill-${cfg.color}`, cfg.label);
+  }
 
   function statusSummary(health) {
     if (!health?.status) return null;
@@ -83,21 +114,21 @@
     return s && (s.pending || 0) + (s.running || 0) > 0;
   }
 
-  function titleFor(pushes) {
-    return `Try Pushes (${pushes.length})`;
-  }
-
   // --- Status badge ---
 
   // Confirmed from the live Phabricator page HTML:
   //   tagCls  — e.g. "phui-tag-green"  (background tint, NOT "phui-tag-shade-green")
   //   iconCls — e.g. "green"           (FA icon colour class, same pattern as fa-check green
   //                                     and fa-headphones red in the Similar-revisions tab)
+  // The "pending" state uses fa-clock (FA5+) plus its FA4 alias fa-clock-o
+  // — same codepoint (\f017) and same Solid-weight glyph in FA Free, so it
+  // matches the visual width of the other badges on both panels without
+  // depending on Pro-only Regular-weight fonts.
   const RESULT_STYLE = {
-    pass:    { fa: "fa-check-circle",  tagCls: "phui-tag-green",  iconCls: "green"  },
-    fail:    { fa: "fa-times-circle",  tagCls: "phui-tag-red",    iconCls: "red"    },
-    running: { fa: "fa-refresh",       tagCls: "phui-tag-yellow", iconCls: "orange" },
-    pending: { fa: "fa-circle-o",      tagCls: "phui-tag-grey",   iconCls: "grey"   },
+    pass:    { fa: "fa-check-circle",        tagCls: "phui-tag-green",  iconCls: "green"  },
+    fail:    { fa: "fa-times-circle",        tagCls: "phui-tag-red",    iconCls: "red"    },
+    running: { fa: "fa-refresh",             tagCls: "phui-tag-yellow", iconCls: "orange" },
+    pending: { fa: "fa-clock-o fa-clock",    tagCls: "phui-tag-grey",   iconCls: "grey"   },
   };
 
   const METRICS = [["Builds", "builds"], ["Lint", "linting"], ["Tests", "tests"]];
@@ -112,7 +143,7 @@
     //   phui-tag-slim (compact) + phui-tag-icon-view (has an icon)
     badge.className = `pt-push-badge phui-tag-view phui-tag-type-shade ${style.tagCls} phui-tag-shade phui-tag-slim phui-tag-icon-view`;
     const core = el("span", "phui-tag-core phui-tag-name");
-    core.append(faIcon(`${style.fa} ${style.iconCls}`), `\u00a0${label}`);
+    core.append(faIcon(`${style.fa} ${style.iconCls}`), ` ${label}`);
     badge.append(core);
     return badge;
   }
@@ -129,47 +160,165 @@
   }
 
   // --- Push row ---
-  // Timestamp and hash are in the SAME flex container so they align
-  // automatically — no float/float-adjacent positioning issues.
+  // Rendered as a <tr> inside a <table> on both panels. Tables auto-size
+  // their columns to widest content per column and don't overflow when the
+  // panel narrows, which the previous flex layout did. The same row markup
+  // is reused on the Bugzilla panel via window.ptBuildPushRow.
+  //
+  // Column order: date | repo | hash | covered-Ds | metric pills | status.
 
-  function buildPushRow(push, currentDNum) {
-    const item = el("div", "pt-push-item");
-    item.dataset.revision = push.revision;
+  // Shared inline-SVG builder lives in lib/icons.js as window.ptIconSvg.
+  const statusIcon = window.ptIconSvg;
 
-    const timeSpan = el("span", "pt-push-time phui-property-list-key greytext");
-    timeSpan.appendChild(buildTimestamp(push.push_timestamp));
+  // D-infos map ({ d → { title, status } }) primed by the background search
+  // and forwarded via panel-controller.js → ctrl.setDInfos(...). Used
+  // synchronously by buildDLink so the abandoned/landed indicator lands
+  // with the row instead of fluttering in a second later.
+  let currentDInfos = {};
+  function setDInfos(infos) { currentDInfos = infos ?? {}; }
 
-    const hashLink = el("a", null, shortRev(push.revision));
-    hashLink.href   = push.treeherder_url;
-    hashLink.target = "_blank";
-    hashLink.rel    = "noopener noreferrer";
-    const hashWrap = nest(el("span", "pt-push-hash"), hashLink);
+  function buildHashCell(push) {
+    const td = el("td", "pt-push-hash");
+    const a = extLink(push.treeherder_url, shortRev(push.revision));
+    if (push.backedOut) {
+      a.classList.add("pt-strike");
+      a.append(" ", statusIcon("fast-backward", "Backed out"));
+    }
+    td.append(a);
+    return td;
+  }
 
-    const row = nest(el("div", "pt-push-row"), timeSpan, hashWrap,
-      ...METRICS.map(([label, key]) => createBadge(label, resolveMetricResult(push, key))));
-    item.append(row);
+  function buildDLink(d) {
+    const info = currentDInfos[d];
+    const a = extLink(phabRevUrl(d), `D${d}`, "pt-push-dlink");
+    if (info?.title) a.title = info.title;
+    if (dRevisionIsAbandoned(info?.status)) {
+      a.classList.add("pt-push-dlink-abandoned", "pt-strike");
+    } else if (dRevisionIsLanded(info?.status)) {
+      a.classList.add("pt-push-dlink-landed");
+      a.append(" ", statusIcon("plane-arrival", "Landed"));
+    }
+    return a;
+  }
+
+  // Pick the per-push D-list to display: full stack first, otherwise
+  // any labelled subset, otherwise the lone labelled D.
+  function dsForPush(push) {
+    if (push.stackDNums?.length) return push.stackDNums;
+    if (push.dNumbers?.length)   return push.dNumbers;
+    if (push.dNumber)            return [push.dNumber];
+    return [];
+  }
+
+  // D-revisions cell — full stack of Ds in this push, on both Phab and
+  // Bugzilla pages. Each D renders as a compact badge so the row reads
+  // "🏷 🏷 🏷" rather than "D…, D…, D…"; spacing comes from a small
+  // trailing margin per badge.
+  function buildCoveredCell(push) {
+    const td = el("td", "pt-push-covered");
+    for (const d of dsForPush(push)) td.append(buildDLink(d));
+    return td;
+  }
+
+  // All three metric badges in one cell so they wrap together as the
+  // panel narrows. Empty slots are skipped.
+  function buildMetricsCell(push) {
+    const td = el("td", "pt-push-metrics");
+    for (const [label, key] of METRICS) {
+      const result = resolveMetricResult(push, key);
+      if (!result || result === "none") continue;
+      if (td.childNodes.length) td.append(" ");
+      td.append(createBadge(label, result));
+    }
+    return td;
+  }
+
+  // Builds the <table>/<tbody> wrapper for a list of push rows. Both
+   // panel factories use this to swap the table into their content slot
+   // — keeps the markup in one place so column changes are one edit.
+  function buildPushTable(pushes) {
+    const tbody = el("tbody");
+    for (const p of pushes) tbody.append(buildPushRow(p));
+    return nest(el("table", "pt-push-table"), tbody);
+  }
+
+  function buildPushRow(push) {
+    const tr = el("tr", "pt-push-row");
+    tr.dataset.revision = push.revision;
 
     const summary = statusSummary(push.health);
-    if (summary) item.append(el("div", "pt-push-note greytext", summary));
 
-    const siblings = currentDNum
-      ? (push.stackDNums ?? []).filter(d => d !== currentDNum)
-      : [];
-    if (siblings.length) {
-      const note = el("div", "pt-push-note greytext");
-      note.append("Also covers: ");
-      siblings.forEach((d, i) => {
-        if (i > 0) note.append(", ");
-        const a = el("a", null, `D${d}`);
-        a.href = `${window.ptPhabBase}/D${d}`;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        note.append(a);
-      });
-      item.append(note);
-    }
+    tr.append(
+      nest(el("td", "pt-push-time greytext"),     relTime(push.push_timestamp)),
+      nest(el("td", "pt-push-repo"),              repoPill(push.repo)),
+      buildHashCell(push),
+      buildCoveredCell(push),
+      buildMetricsCell(push),
+      el("td", "pt-push-status greytext", summary ?? ""),
+    );
+    return tr;
+  }
 
-    return item;
+  // --- Warning banner ---
+  // Renders a non-fatal "results may be incomplete" notice above the push
+  // list. Distinct from setError() (a full failure that replaces the list).
+  // The details panel lists each failing URL with its corresponding error
+  // code; the code is a link to MDN's reference page for that status (or
+  // to MDN's CORS-errors page for the "Network error" bucket — used when
+  // no HTTP status was readable, e.g. CORS-blocked responses, DNS, etc.).
+  // Reused by bugzilla-panel.js via window.ptBuildWarning.
+
+  const statusReference = status => status
+    ? `https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/${status}`
+    : "https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS/Errors";
+
+  function buildWarningEntry({ url, status }) {
+    const li = el("li", "pt-warning-entry");
+    const code = el("a", "pt-warning-status",
+      status ? `HTTP ${status}` : "Network error");
+    code.href = statusReference(status);
+    code.target = "_blank";
+    code.rel = "noopener noreferrer";
+    code.title = status
+      ? `HTTP ${status} — open MDN reference for this status code`
+      : "Browser-side error (CORS, DNS, network) — open MDN CORS-errors reference";
+
+    // Each failing URL is itself a clickable link so the user can inspect
+    // the request directly (open in browser → see the response, headers,
+    // etc.). For unknown URLs (rare — would require a non-fetch error)
+    // fall back to a plain text label.
+    const urlNode = url
+      ? extLink(url, url, "pt-warning-url")
+      : el("span", "pt-warning-url", "(unknown URL)");
+
+    li.append(code, urlNode);
+    return li;
+  }
+
+  function buildWarning(errors) {
+    if (!errors?.length) return null;
+    const wrap = el("div", "pt-warning");
+
+    const list = el("ul", "pt-warning-list");
+    for (const e of errors) list.append(buildWarningEntry(e));
+
+    const details = el("div", "pt-warning-details");
+    details.hidden = true;
+    details.append(list);
+
+    const total = errors.length;
+    const ws = total === 1 ? "" : "es";
+    const header = el("div", "pt-warning-summary");
+    const toggle = withAction(el("a", null, "Details"),
+      () => { details.hidden = !details.hidden; });
+    header.append(
+      faIcon("fa-exclamation-triangle"),
+      ` Some pushes may be missing — ${total} fetch${ws} failed. `,
+      toggle,
+    );
+
+    wrap.append(header, details);
+    return wrap;
   }
 
   // --- Panel shell ---
@@ -192,14 +341,18 @@
             nest(el("div", "phui-header-col3"), reloadLink))))
     );
 
+    // Direct children of the phui-box panel, no property-list wrappers —
+    // Phabricator's float-based property-list layout was forcing the
+    // table into a narrower content box and causing the pill column to
+    // overlap the hash column. Plain block flow gives the table the full
+    // panel width to lay out its columns.
+    const warning = el("div", "pt-warning-slot");
+    const status = el("div", "pt-status-slot");
     const list = el("div", "pt-push-list");
-    panel.append(
-      nest(el("div", "phui-property-list-section"),
-        nest(el("div", "phui-property-list-container grouped"),
-          nest(el("div", "phui-property-list-properties-wrap"), list)))
-    );
+    panel.append(warning, status, list);
 
-    return { panel, list, setTitle: text => { titleText.textContent = text; } };
+    const setTitle = text => { titleText.textContent = text; };
+    return { panel, list, warning, status, setTitle };
   }
 
   // --- State rows ---
@@ -214,17 +367,15 @@
 
   window.ptIsRunning = isRunning;
 
-  window.ptCreatePanel = function (onReload, { dNumber: currentDNum } = {}) {
-    const { panel, list, setTitle } = buildShell(onReload);
+  window.ptCreatePanel = function (onReload) {
+    const { panel, list, warning, status, setTitle } = buildShell(onReload);
 
     const resetTitle = () => setTitle("Try Pushes");
 
     function setLoading(message, done, total) {
       resetTitle();
       const row = stateRow(list, message, "greytext pt-state-loading");
-      const bar = el("progress");
-      if (done !== undefined && total > 0) { bar.max = total; bar.value = done; }
-      row.append(bar);
+      row.append(progressBar(done, total));
     }
 
     function setError(message) {
@@ -234,32 +385,59 @@
     }
 
     function setPushes(pushes) {
-      setTitle(titleFor(pushes));
-      if (pushes.length)
-        list.replaceChildren(...pushes.map(p => buildPushRow(p, currentDNum)));
-      else stateRow(list, window.ptNoTryPushesMsg, "greytext pt-state-error");
+      setTitle(`Try Pushes (${pushes.length})`);
+      if (pushes.length) list.replaceChildren(buildPushTable(pushes));
+      else               stateRow(list, window.ptNoTryPushesMsg, "greytext pt-state-error");
     }
 
-    const ctrl = { el: panel, setLoading, setError, setPushes };
+    function setWarning(errors) {
+      const banner = buildWarning(errors);
+      if (banner) warning.replaceChildren(banner);
+      else        warning.replaceChildren();
+    }
+
+    function setStatus(message, done, total) {
+      if (!message) { status.replaceChildren(); return; }
+      const row = nest(el("div", "pt-status-row greytext", message), progressBar(done, total));
+      status.replaceChildren(row);
+    }
+
+    const ctrl = { el: panel, setLoading, setError, setPushes, setWarning, setStatus, setDInfos };
     panel.dataset.ptPanel = "1";
     panel._ptCtrl = ctrl;  // lets updatePanel reach the controller without re-querying the DOM
     return ctrl;
   };
 
   // Shared utilities for bugzilla-panel.js
-  window.ptPhabBase            = "https://phabricator.services.mozilla.com";
   window.ptFaIcon              = faIcon;
   window.ptNest                = nest;
   window.ptEl                  = el;
   window.ptWithAction          = withAction;
-  window.ptShortRev            = shortRev;
+  window.ptBuildPushRow        = buildPushRow;
+  window.ptBuildPushTable      = buildPushTable;
+  window.ptBuildWarning        = buildWarning;
+  window.ptProgressBar         = progressBar;
+  window.ptApplyResult         = applyResult;
+  // ptExtLink is provided by lib/icons.js (loaded first per manifest.json).
+  // Bugzilla panel shares panel.js's buildDLink, which reads
+  // `currentDInfos` from this IIFE's module scope. Expose the setter so
+  // bugzilla-panel.js can prime it before calling setPushes.
+  window.ptSetDInfos           = setDInfos;
   window.ptNoTryPushesMsg      = "No try pushes found for this revision.";
-  window.ptMetrics             = METRICS;
-  window.ptStatusSummary       = statusSummary;
-  window.ptResolveMetricResult = resolveMetricResult;
 
-  function updatePanel(panelEl, pushes) {
-    panelEl._ptCtrl?.setPushes(pushes);
+  // Apply a result payload (dInfos + errors + pushes) to a controller in
+  // the order setDInfos → setWarning → setPushes. setDInfos must run
+  // first so the row builders see the per-D status map and can decorate
+  // synchronously; missing this order is the classic "icons flutter in
+  // a second after the rows" regression.
+  function applyResult(ctrl, { pushes, errors, dInfos }) {
+    ctrl.setDInfos?.(dInfos);
+    ctrl.setWarning?.(errors);
+    ctrl.setPushes(pushes);
+  }
+
+  function updatePanel(panelEl, payload) {
+    if (panelEl._ptCtrl) applyResult(panelEl._ptCtrl, payload);
   }
 
   window.ptStartAutoRefresh = function (panelEl, msgPayload, fetchFn) {
@@ -268,10 +446,13 @@
     async function tick() {
       if (!document.contains(panelEl)) { stop(); return; }
       try {
-        const pushes = await fetchFn(msgPayload, true);
+        // silent=true: no progress flash, no setStatus indicator. The
+        // panel keeps the previously rendered rows visible until fresh
+        // results arrive, then updates in place.
+        const result = await fetchFn(msgPayload, true, true);
         if (stopped) return;   // reload() fired while we were awaiting — discard result
-        updatePanel(panelEl, pushes);
-        if (pushes.every(p => !isRunning(p))) stop();
+        updatePanel(panelEl, result);
+        if (result.pushes.every(p => !isRunning(p))) stop();
       } catch (e) { console.warn("[phab-try] auto-refresh failed", e); }
     }
     function stop() { stopped = true; clearInterval(handle); handle = null; }

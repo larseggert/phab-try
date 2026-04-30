@@ -7,8 +7,12 @@ export default {
     "package.json",
     "package-lock.json",
     "README.md",
+    "DATA.md",
     "icons/icon.svg",
     "amo-metadata.json",
     "debug.mjs",
+    "test/**",
+    "vitest.config.*",
+    "coverage/**",
   ],
 };

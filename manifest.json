@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "phab-try",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Surfaces Treeherder try push status on Phabricator and Bugzilla pages.",
   "browser_specific_settings": {
     "gecko": {
@@ -12,7 +12,7 @@
       }
     }
   },
-  "permissions": ["storage", "alarms"],
+  "permissions": ["storage", "alarms", "webRequest"],
   "options_ui": {
     "page": "options.html",
     "open_in_tab": false
@@ -25,28 +25,36 @@
     "https://phabricator.services.mozilla.com/*"
   ],
   "background": {
-    "scripts": ["background.js"]
+    "scripts": ["lib/pure.js", "background.js"]
   },
   "content_scripts": [
     {
       "matches": ["https://treeherder.mozilla.org/jobs*"],
-      "js": ["content/treeherder.js"],
-      "css": ["content/treeherder.css"]
+      "js": ["lib/pure.js", "lib/fa-icons.js", "lib/icons.js", "content/treeherder.js"],
+      "css": ["lib/badges.css", "content/treeherder.css"]
     },
     {
       "matches": ["https://phabricator.services.mozilla.com/D*"],
-      "js": ["content/panel.js", "content/panel-controller.js", "content/phabricator.js"],
-      "css": ["content/panel.css"]
+      "js": [
+        "lib/pure.js",
+        "lib/fa-icons.js", "lib/icons.js",
+        "content/panel.js",
+        "content/panel-controller.js",
+        "content/phabricator.js"
+      ],
+      "css": ["lib/badges.css", "content/panel.css"]
     },
     {
       "matches": ["https://bugzilla.mozilla.org/show_bug.cgi*"],
       "js": [
+        "lib/pure.js",
+        "lib/fa-icons.js", "lib/icons.js",
         "content/panel.js",
         "content/bugzilla-panel.js",
         "content/panel-controller.js",
         "content/bugzilla.js"
       ],
-      "css": ["content/panel.css"]
+      "css": ["lib/badges.css", "content/panel.css"]
     }
   ],
   "icons": {
