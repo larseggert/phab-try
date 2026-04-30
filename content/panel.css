@@ -180,7 +180,10 @@
      <progress> grows to fill rather than relying on its intrinsic size. */
   .pt-bz-status { width: calc(100% - 16px); box-sizing: border-box; }
   .pt-bz-status > progress { flex: 1 1 0; min-width: 0; }
-  .pt-warning { margin-bottom: 8px; }
+  /* Bugzilla's .module-content can be a flex column; without explicit
+     width, flex items shrink to content. Pin to content width minus the
+     8px gutters so the banner matches the table. */
+  .pt-warning { margin-bottom: 8px; width: calc(100% - 16px); box-sizing: border-box; }
 
   .pt-bz-reload { padding: 0 12px; align-self: center; opacity: 0.8; white-space: nowrap; }
   .pt-bz-msg         { padding: 8px; margin: 0; color: #666; }

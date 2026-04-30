@@ -268,20 +268,26 @@
   // no HTTP status was readable, e.g. CORS-blocked responses, DNS, etc.).
   // Reused by bugzilla-panel.js via window.ptBuildWarning.
 
-  const statusReference = status => status
-    ? `https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/${status}`
-    : "https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS/Errors";
+  const CORS_ERRORS_URL = "https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS/Errors";
+  const statusReference = status =>
+    (status && status !== 200)
+      ? `https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/${status}`
+      : CORS_ERRORS_URL;
 
   function buildWarningEntry({ url, status }) {
     const li = el("li", "pt-warning-entry");
+    // HTTP 200 here means the server replied but the browser refused the
+    // response due to CORS — the wire-level 200 was recorded by webRequest
+    // before the CORS check ran. Label it the same as a pure network error.
+    const isCors = !status || status === 200;
     const code = el("a", "pt-warning-status",
-      status ? `HTTP ${status}` : "Network error");
+      isCors ? "CORS blocked" : `HTTP ${status}`);
     code.href = statusReference(status);
     code.target = "_blank";
     code.rel = "noopener noreferrer";
-    code.title = status
-      ? `HTTP ${status} — open MDN reference for this status code`
-      : "Browser-side error (CORS, DNS, network) — open MDN CORS-errors reference";
+    code.title = isCors
+      ? "Browser blocked this request (missing CORS headers) — open MDN CORS-errors reference"
+      : `HTTP ${status} — open MDN reference for this status code`;
 
     // Each failing URL is itself a clickable link so the user can inspect
     // the request directly (open in browser → see the response, headers,
