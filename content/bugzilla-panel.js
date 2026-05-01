@@ -11,18 +11,18 @@ window.ptCreateBugzillaPanel = (function () {
   // panels render identically and we only have one place to maintain.
   const { ptFaIcon: faIcon, ptNest: nest, ptEl: el, ptWithAction: withAction,
           ptBuildPushTable: buildPushTable, ptBuildWarning: buildWarning,
-          ptProgressBar: progressBar, ptNoTryPushesMsg } = window;
+          ptProgressBar: progressBar, ptNoPushesMsg } = window;
 
   return function (onReload) {
-    const ID = "module-try-pushes";
+    const ID = "module-pushes";
 
     // Declare content first so spinner can reference content.id for aria-controls.
     const content  = Object.assign(el("div",      "module-content"), { id: `${ID}-content` });
-    const titleEl  = Object.assign(el("h2", "module-title",   "Try Pushes"), { id: `${ID}-title` });
+    const titleEl  = Object.assign(el("h2", "module-title",   "Pushes"), { id: `${ID}-title` });
     const subtitle = Object.assign(el("h3", "module-subtitle"),               { id: `${ID}-subtitle` });
 
-    const LABEL_EXP = "Collapse Try Pushes section";
-    const LABEL_COL = "Expand Try Pushes section";
+    const LABEL_EXP = "Collapse Pushes section";
+    const LABEL_COL = "Expand Pushes section";
 
     const spinner = Object.assign(el("div", "module-spinner"),
       { role: "button", tabIndex: 0, ariaExpanded: "true", ariaLabel: LABEL_EXP });
@@ -30,7 +30,7 @@ window.ptCreateBugzillaPanel = (function () {
 
     const reloadBtn = nest(withAction(el("a", "pt-bz-reload"), onReload), faIcon("fas fa-sync"), " Reload");
 
-    // Flex layout for header is in panel.css (#module-try-pushes .module-header)
+    // Flex layout for header is in panel.css (#module-pushes .module-header)
     const section = Object.assign(el("section", "module"), { id: ID });
     section.append(
       nest(el("header", "module-header"),
@@ -53,7 +53,7 @@ window.ptCreateBugzillaPanel = (function () {
 
     function setTitle(text)    { titleEl.textContent = text; }
     function setSubtitle(text) { subtitle.textContent = text ? `(${text})` : ""; }
-    function resetTitle()      { setTitle("Try Pushes"); setSubtitle(""); }
+    function resetTitle()      { setTitle("Pushes"); setSubtitle(""); }
 
     // The warning banner is kept as a separate node and re-attached on each
     // setPushes / setLoading / setError call so it persists across content
@@ -76,11 +76,11 @@ window.ptCreateBugzillaPanel = (function () {
       withAction(el("a", null, " Retry"), onReload)));
 
     function setPushes(pushes) {
-      setTitle(`Try Pushes (${pushes.length})`);
+      setTitle(`Pushes (${pushes.length})`);
       setSubtitle(`${pushes.length} push${pushes.length !== 1 ? "es" : ""}`);
       content.replaceChildren(pushes.length
         ? buildPushTable(pushes)
-        : el("p", "pt-bz-msg pt-bz-msg-empty", ptNoTryPushesMsg));
+        : el("p", "pt-bz-msg pt-bz-msg-empty", ptNoPushesMsg));
       reattachOverlays();
     }
 

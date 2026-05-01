@@ -7,8 +7,8 @@
 /* Set up the panel as a containment context so the table cells can use
    container queries to hide the optional status-text column when this
    panel itself is narrow (independent of viewport width). */
-.pt-try-panel { margin-bottom: 8px; container-type: inline-size; }
-#module-try-pushes { container-type: inline-size; }
+.pt-panel { margin-bottom: 8px; container-type: inline-size; }
+#module-pushes { container-type: inline-size; }
 
 /* Auto-layout table — every interior column shrinks to its content width;
    only the trailing status cell is given the slack. nowrap on the interior
@@ -70,23 +70,23 @@
    is applied to both the panel-side repo pill AND its Bugzilla mirror
    in a single rule. */
 .pt-repo-pill-blue,
-#module-try-pushes .phui-tag-shade.phui-tag-blue   { background: var(--pt-blue-bg);   color: var(--pt-blue-fg);   border-color: var(--pt-blue-bd);   }
+#module-pushes .phui-tag-shade.phui-tag-blue   { background: var(--pt-blue-bg);   color: var(--pt-blue-fg);   border-color: var(--pt-blue-bd);   }
 .pt-repo-pill-green,
-#module-try-pushes .phui-tag-shade.phui-tag-green  { background: var(--pt-green-bg);  color: var(--pt-green-fg);  border-color: var(--pt-green-bd);  }
+#module-pushes .phui-tag-shade.phui-tag-green  { background: var(--pt-green-bg);  color: var(--pt-green-fg);  border-color: var(--pt-green-bd);  }
 .pt-repo-pill-violet,
-#module-try-pushes .phui-tag-shade.phui-tag-violet { background: var(--pt-violet-bg); color: var(--pt-violet-fg); border-color: var(--pt-violet-bd); }
+#module-pushes .phui-tag-shade.phui-tag-violet { background: var(--pt-violet-bg); color: var(--pt-violet-fg); border-color: var(--pt-violet-bd); }
 .pt-repo-pill-orange,
-#module-try-pushes .phui-tag-shade.phui-tag-orange { background: var(--pt-orange-bg); color: var(--pt-orange-fg); border-color: var(--pt-orange-bd); }
+#module-pushes .phui-tag-shade.phui-tag-orange { background: var(--pt-orange-bg); color: var(--pt-orange-fg); border-color: var(--pt-orange-bd); }
 .pt-repo-pill-red,
-#module-try-pushes .phui-tag-shade.phui-tag-red    { background: var(--pt-red-bg);    color: var(--pt-red-fg);    border-color: var(--pt-red-bd);    }
+#module-pushes .phui-tag-shade.phui-tag-red    { background: var(--pt-red-bg);    color: var(--pt-red-fg);    border-color: var(--pt-red-bd);    }
 .pt-repo-pill-pink,
-#module-try-pushes .phui-tag-shade.phui-tag-pink   { background: var(--pt-pink-bg);   color: var(--pt-pink-fg);   border-color: var(--pt-pink-bd);   }
+#module-pushes .phui-tag-shade.phui-tag-pink   { background: var(--pt-pink-bg);   color: var(--pt-pink-fg);   border-color: var(--pt-pink-bd);   }
 .pt-repo-pill-indigo,
-#module-try-pushes .phui-tag-shade.phui-tag-indigo { background: var(--pt-indigo-bg); color: var(--pt-indigo-fg); border-color: var(--pt-indigo-bd); }
+#module-pushes .phui-tag-shade.phui-tag-indigo { background: var(--pt-indigo-bg); color: var(--pt-indigo-fg); border-color: var(--pt-indigo-bd); }
 .pt-repo-pill-grey,
-#module-try-pushes .phui-tag-shade.phui-tag-grey   { background: var(--pt-grey-bg);   color: var(--pt-grey-fg);   border-color: var(--pt-grey-bd);   }
+#module-pushes .phui-tag-shade.phui-tag-grey   { background: var(--pt-grey-bg);   color: var(--pt-grey-fg);   border-color: var(--pt-grey-bd);   }
 /* yellow only appears as a Bugzilla phui-tag mirror (no repo uses it). */
-#module-try-pushes .phui-tag-shade.phui-tag-yellow { background: var(--pt-yellow-bg); color: var(--pt-yellow-fg); border-color: var(--pt-yellow-bd); }
+#module-pushes .phui-tag-shade.phui-tag-yellow { background: var(--pt-yellow-bg); color: var(--pt-yellow-fg); border-color: var(--pt-yellow-bd); }
 
 /* Warning banner (above push list, both panels). */
 .pt-warning {
@@ -125,7 +125,7 @@
 
 /* Bugzilla panel — provide phui-tag visuals (Phabricator's tag CSS isn't
    loaded here) and a small horizontal inset for our content blocks. */
-#module-try-pushes {
+#module-pushes {
   .module-header { display: flex; }
   .module-latch  { flex: 1; }
 

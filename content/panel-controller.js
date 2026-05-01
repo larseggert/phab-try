@@ -21,7 +21,7 @@ function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) 
   const anchor = findAnchor();
   if (!anchor?.parentNode) return;
 
-  const LOADING_MSG = "Searching try pushes\u2026";
+  const LOADING_MSG = "Searching pushes\u2026";
 
   // The background search emits its result progressively: once for the
   // fast direct-match phase, again once the slow hg-edge mach-try-auto
@@ -36,7 +36,7 @@ function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) 
   // run silent=false so the user sees the progress bar.
   function fetchPushes(pl, force = false, silent = false) {
     return new Promise((resolve, reject) => {
-      const port = browser.runtime.connect({ name: "getTryPushes" });
+      const port = browser.runtime.connect({ name: "getPushes" });
       port.postMessage({ ...pl, force });
       let firstResolved = false;
       port.onMessage.addListener(({ type, pushes, errors, dInfos, message, done, total }) => {
@@ -102,7 +102,7 @@ function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) 
       }
     } catch (err) {
       if (myGen !== generation) return;
-      ctrl.setError(`Failed to fetch try push data. (${err.message})`);
+      ctrl.setError(`Failed to fetch push data. (${err.message})`);
       console.error("[phab-try]", err);
     }
   }
