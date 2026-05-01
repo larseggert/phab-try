@@ -14,8 +14,26 @@
 // TREEHERDER_BASE, HG_TRY_BASE, PHAB_BASE, BUGZILLA_BASE,
 // PHAB_ATTACHMENT_RE — globals from lib/pure.js.
 
-// Repos surfaced in the panel. Order is preserved for display.
-const TRACKED_REPOS = [
+// Display-order priority map for known repos. try first (most frequent),
+// then landing repos closest-to-shipping first. ESR repos sort residually
+// (Infinity priority) by descending ESR number so the newest appears first.
+const REPO_DISPLAY_PRIORITY = new Map(
+  ["try", "autoland", "mozilla-central", "mozilla-beta", "mozilla-release"].map((n, i) => [n, i]),
+);
+const esrNum = (name) => Number(name.match(/\d+$/)?.[0]) || 0;
+const sortTrackedRepos = (names) =>
+  [...names].sort((a, b) => {
+    const pa = REPO_DISPLAY_PRIORITY.get(a) ?? Infinity;
+    const pb = REPO_DISPLAY_PRIORITY.get(b) ?? Infinity;
+    return pa !== pb ? pa - pb : esrNum(b) - esrNum(a);
+  });
+
+// Fetched from Treeherder's /api/repository/ once per browser session;
+// falls back to a static list when the API is unreachable. The static
+// list needs manual updates only when ESR numbers change — the live
+// fetch supersedes it as soon as the API responds.
+const TRACKED_GROUPS = new Set(["development", "release-stabilization"]);
+const FALLBACK_TRACKED_REPOS = sortTrackedRepos([
   "try",
   "autoland",
   "mozilla-central",
@@ -23,7 +41,24 @@ const TRACKED_REPOS = [
   "mozilla-release",
   "mozilla-esr140",
   "mozilla-esr115",
-];
+]);
+
+// Lazy singleton: the Promise is created on first call and reused
+// thereafter. Once settled it resolves instantly on subsequent calls.
+let trackedReposPromise = null;
+const getTrackedRepos = () =>
+  (trackedReposPromise ??= (async () => {
+    const data = await safely(() => fetchJson(`${TREEHERDER_BASE}/api/repository/`));
+    const names = (data ?? [])
+      .filter(
+        ({ active_status, dvcs_type, repository_group }) =>
+          active_status === "active" &&
+          dvcs_type === "hg" &&
+          TRACKED_GROUPS.has(repository_group?.name),
+      )
+      .map(({ name }) => name);
+    return sortTrackedRepos(names.length ? names : FALLBACK_TRACKED_REPOS);
+  })());
 
 const AUTHOR_HISTORY_COUNT = 1000; // first author fetch
 const AUTHOR_HISTORY_INCR = 200; // incremental fetch when cache exists
@@ -588,17 +623,14 @@ async function mergeDInfos(dInfos, pushes, errors) {
 //                    bug's Ds each push covers; Phab path passes none)
 //   - reportProgress / emit: progress + result callbacks
 async function runMultiRepoSearch({ errors, creators, matchText, labelFor, reportProgress, emit }) {
+  const trackedRepos = await getTrackedRepos();
   // Phase 1 — every Treeherder push list, fan out in parallel.
-  reportProgress?.(`Searching ${TRACKED_REPOS.length} repos…`, 0, TRACKED_REPOS.length);
+  reportProgress?.(`Searching ${trackedRepos.length} repos…`, 0, trackedRepos.length);
   let repoDone = 0;
   const perRepo = await Promise.all(
-    TRACKED_REPOS.map(async (repo) => {
+    trackedRepos.map(async (repo) => {
       const all = await gatherFromRepo(repo, creators, errors);
-      reportProgress?.(
-        `Searching ${TRACKED_REPOS.length} repos…`,
-        ++repoDone,
-        TRACKED_REPOS.length,
-      );
+      reportProgress?.(`Searching ${trackedRepos.length} repos…`, ++repoDone, trackedRepos.length);
       return { repo, all };
     }),
   );
