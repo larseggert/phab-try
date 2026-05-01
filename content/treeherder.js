@@ -13,7 +13,7 @@
 
   // PHAB_BASE / BUGZILLA_BASE / phabRevUrl / safely come from lib/pure.js.
 
-  const params   = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams(window.location.search);
   const revision = params.get("revision");
   if (!revision || params.get("repo") !== "try") return;
 
@@ -27,28 +27,33 @@
 
   // Returns { title, status } for a D-revision (status from background's
   // Phab HTML scrape) or null on failure.
-  const fetchDInfo = dNum => safely(() =>
-    browser.runtime.sendMessage({ type: "getDTitle", dNum }));
+  const fetchDInfo = (dNum) =>
+    safely(() => browser.runtime.sendMessage({ type: "getDTitle", dNum }));
 
   // Returns { title, status, resolution, isOpen, dupeOf } for a bug.
-  const fetchBugInfo = async bugNum => safely(async () => {
-    const data = await fetchJson(
-      `${BUGZILLA_BASE}/rest/bug/${bugNum}?include_fields=summary,status,resolution,is_open,dupe_of`);
-    const b = data.bugs?.[0];
-    return b ? {
-      title: b.summary, status: b.status, resolution: b.resolution,
-      isOpen: b.is_open, dupeOf: b.dupe_of,
-    } : null;
-  });
+  const fetchBugInfo = async (bugNum) =>
+    safely(async () => {
+      const data = await fetchJson(
+        `${BUGZILLA_BASE}/rest/bug/${bugNum}?include_fields=summary,status,resolution,is_open,dupe_of`,
+      );
+      const b = data.bugs?.[0];
+      return b
+        ? {
+            title: b.summary,
+            status: b.status,
+            resolution: b.resolution,
+            isOpen: b.is_open,
+            dupeOf: b.dupe_of,
+          }
+        : null;
+    });
 
   async function fetchInfos({ dNums, bugNums }) {
     const toMap = (nums, fn) =>
-      Promise.all(nums.map(async n => [n, await fn(n)]))
-        .then(es => Object.fromEntries(es.filter(([, v]) => v)));
-    const [d, bug] = await Promise.all([
-      toMap(dNums,   fetchDInfo),
-      toMap(bugNums, fetchBugInfo),
-    ]);
+      Promise.all(nums.map(async (n) => [n, await fn(n)])).then((es) =>
+        Object.fromEntries(es.filter(([, v]) => v)),
+      );
+    const [d, bug] = await Promise.all([toMap(dNums, fetchDInfo), toMap(bugNums, fetchBugInfo)]);
     return { d, bug };
   }
 
@@ -69,9 +74,12 @@
   // Bug-info shape from Bugzilla REST uses `is_open`; the pure helpers
   // accept either that or the camelCase `isOpen` we use elsewhere — pass
   // the raw object directly.
-  const bugInfoForHelpers = info => info && {
-    status: info.status, resolution: info.resolution, is_open: info.isOpen,
-  };
+  const bugInfoForHelpers = (info) =>
+    info && {
+      status: info.status,
+      resolution: info.resolution,
+      is_open: info.isOpen,
+    };
 
   function dLinkEl(d, info) {
     const a = makeLink(phabRevUrl(d), `D${d}`, info?.title);
@@ -104,8 +112,8 @@
     const bar = document.createElement("span");
     bar.dataset.ptLinks = "1";
     bar.append(
-      ...dNums.map(d   => dLinkEl(d, dInfos[d])),
-      ...bugNums.map(b => bugLinkEl(b, bugInfos[b])),
+      ...dNums.map((d) => dLinkEl(d, dInfos[d])),
+      ...bugNums.map((b) => bugLinkEl(b, bugInfos[b])),
     );
     return bar;
   }
@@ -116,18 +124,20 @@
   // i.e. those whose parent header has no `[data-pt-links]` yet.
   const findTargets = () =>
     [...document.querySelectorAll(PUSH_HEADER_SEL)]
-      .map(h => h.querySelector(".push-buttons"))
-      .filter(b => b && !b.querySelector("[data-pt-links]"));
+      .map((h) => h.querySelector(".push-buttons"))
+      .filter((b) => b && !b.querySelector("[data-pt-links]"));
 
   // The data fetch is kicked off the first time at least one target exists,
   // and reused for every subsequent inject (React re-renders, new headers).
   let dataPromise = null;
-  const ensureData = () => dataPromise ??= (async () => {
-    const links = await safely(() =>
-      browser.runtime.sendMessage({ type: "resolveLinks", revision }));
-    if (!links) return null;
-    return { links, infos: await fetchInfos(links) };
-  })();
+  const ensureData = () =>
+    (dataPromise ??= (async () => {
+      const links = await safely(() =>
+        browser.runtime.sendMessage({ type: "resolveLinks", revision }),
+      );
+      if (!links) return null;
+      return { links, infos: await fetchInfos(links) };
+    })());
 
   async function tryInject() {
     const targets = findTargets();
@@ -152,7 +162,10 @@
   const observer = new MutationObserver(() => {
     if (rafPending) return;
     rafPending = true;
-    requestAnimationFrame(() => { rafPending = false; tryInject(); });
+    requestAnimationFrame(() => {
+      rafPending = false;
+      tryInject();
+    });
   });
   observer.observe(document.body, { childList: true, subtree: true });
 })();

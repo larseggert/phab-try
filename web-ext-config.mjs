@@ -14,5 +14,8 @@ export default {
     "test/**",
     "vitest.config.*",
     "coverage/**",
+    ".prettierrc.json",
+    ".prettierignore",
+    ".stylelintrc.json",
   ],
 };

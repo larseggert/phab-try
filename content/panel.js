@@ -13,7 +13,7 @@
 
   function el(tag, cls, text) {
     const node = document.createElement(tag);
-    if (cls)  node.className   = cls;
+    if (cls) node.className = cls;
     if (text) node.textContent = text;
     return node;
   }
@@ -26,7 +26,10 @@
   // Sets href="#" and attaches a click handler that calls fn() without navigating.
   function withAction(node, fn) {
     node.href = "#";
-    node.addEventListener("click", e => { e.preventDefault(); fn(); });
+    node.addEventListener("click", (e) => {
+      e.preventDefault();
+      fn();
+    });
     return node;
   }
 
@@ -37,7 +40,10 @@
   // Determinate <progress> when done/total are valid; indeterminate otherwise.
   function progressBar(done, total) {
     const bar = el("progress");
-    if (done !== undefined && total > 0) { bar.max = total; bar.value = done; }
+    if (done !== undefined && total > 0) {
+      bar.max = total;
+      bar.value = done;
+    }
     return bar;
   }
 
@@ -54,10 +60,13 @@
   // local timestamp on hover via the title attr. The .rel-time class makes
   // Bugzilla's bug_modal.js auto-tick this every 60 s on the Bugzilla
   // panel — harmless on the Phab panel where that loop doesn't run.
-  const _rtf   = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
+  const _rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
   const _units = [
-    ["year",  365 * 86400], ["month", 30 * 86400],
-    ["day",   86400],       ["hour",  3600], ["minute", 60],
+    ["year", 365 * 86400],
+    ["month", 30 * 86400],
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60],
   ];
   function relTime(epochSecs) {
     const elapsed = Math.floor(Date.now() / 1000) - epochSecs;
@@ -67,14 +76,22 @@
     const span = el("span", "rel-time", rel);
     span.dataset.time = String(epochSecs);
     span.title = new Date(epochSecs * 1000).toLocaleString(undefined, {
-      weekday: "short", year: "numeric", month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
       timeZoneName: "short",
     });
     return span;
   }
 
-  function shortRev(r) { return r ? r.slice(0, 8) : "?"; }
+  function shortRev(r) {
+    return r ? r.slice(0, 8) : "?";
+  }
 
   // Per-repo pill. Uses our own classes (not Phabricator's phui-tag-view
   // markup) so we have full control over width and aren't competing with
@@ -82,13 +99,13 @@
   // Visually still matches the phui-tag-shade aesthetic (light tinted
   // background, dark same-hue text, soft border).
   const REPO_PILL = {
-    "try":              { label: "try",      color: "blue"   },
-    "autoland":         { label: "autoland", color: "green"  },
-    "mozilla-central":  { label: "central",  color: "violet" },
-    "mozilla-beta":     { label: "beta",     color: "orange" },
-    "mozilla-release":  { label: "release",  color: "red"    },
-    "mozilla-esr140":   { label: "esr140",   color: "pink"   },
-    "mozilla-esr115":   { label: "esr115",   color: "indigo" },
+    try: { label: "try", color: "blue" },
+    autoland: { label: "autoland", color: "green" },
+    "mozilla-central": { label: "central", color: "violet" },
+    "mozilla-beta": { label: "beta", color: "orange" },
+    "mozilla-release": { label: "release", color: "red" },
+    "mozilla-esr140": { label: "esr140", color: "pink" },
+    "mozilla-esr115": { label: "esr115", color: "indigo" },
   };
   function repoPill(repo) {
     const cfg = REPO_PILL[repo] ?? { label: repo ?? "?", color: "grey" };
@@ -103,9 +120,13 @@
     const parts = [];
     if (total) parts.push(`${c}/${total} completed`);
     for (const [key, label] of [
-      ["testfailed", "failed"], ["busted", "busted"],
-      ["exception", "exception"], ["running", "running"], ["pending", "pending"],
-    ]) if (s[key]) parts.push(`${s[key]} ${label}`);
+      ["testfailed", "failed"],
+      ["busted", "busted"],
+      ["exception", "exception"],
+      ["running", "running"],
+      ["pending", "pending"],
+    ])
+      if (s[key]) parts.push(`${s[key]} ${label}`);
     return parts.join(", ") || null;
   }
 
@@ -125,13 +146,17 @@
   // matches the visual width of the other badges on both panels without
   // depending on Pro-only Regular-weight fonts.
   const RESULT_STYLE = {
-    pass:    { fa: "fa-check-circle",        tagCls: "phui-tag-green",  iconCls: "green"  },
-    fail:    { fa: "fa-times-circle",        tagCls: "phui-tag-red",    iconCls: "red"    },
-    running: { fa: "fa-refresh",             tagCls: "phui-tag-yellow", iconCls: "orange" },
-    pending: { fa: "fa-clock-o fa-clock",    tagCls: "phui-tag-grey",   iconCls: "grey"   },
+    pass: { fa: "fa-check-circle", tagCls: "phui-tag-green", iconCls: "green" },
+    fail: { fa: "fa-times-circle", tagCls: "phui-tag-red", iconCls: "red" },
+    running: { fa: "fa-refresh", tagCls: "phui-tag-yellow", iconCls: "orange" },
+    pending: { fa: "fa-clock-o fa-clock", tagCls: "phui-tag-grey", iconCls: "grey" },
   };
 
-  const METRICS = [["Builds", "builds"], ["Lint", "linting"], ["Tests", "tests"]];
+  const METRICS = [
+    ["Builds", "builds"],
+    ["Lint", "linting"],
+    ["Tests", "tests"],
+  ];
 
   function createBadge(label, result) {
     // Empty slot keeps column alignment even when the metric has no data.
@@ -154,9 +179,9 @@
     const m = push.health?.metrics ?? {};
     const s = push.health?.status;
     const allNone = METRICS.every(([, k]) => !m[k]?.result || m[k].result === "none");
-    const hasFailed = allNone && s &&
-      ((s.busted || 0) + (s.exception || 0) + (s.testfailed || 0)) > 0;
-    return (hasFailed && key === "builds") ? "fail" : (m[key]?.result ?? null);
+    const hasFailed =
+      allNone && s && (s.busted || 0) + (s.exception || 0) + (s.testfailed || 0) > 0;
+    return hasFailed && key === "builds" ? "fail" : (m[key]?.result ?? null);
   }
 
   // --- Push row ---
@@ -175,7 +200,9 @@
   // synchronously by buildDLink so the abandoned/landed indicator lands
   // with the row instead of fluttering in a second later.
   let currentDInfos = {};
-  function setDInfos(infos) { currentDInfos = infos ?? {}; }
+  function setDInfos(infos) {
+    currentDInfos = infos ?? {};
+  }
 
   function buildHashCell(push) {
     const td = el("td", "pt-push-hash");
@@ -205,8 +232,8 @@
   // any labelled subset, otherwise the lone labelled D.
   function dsForPush(push) {
     if (push.stackDNums?.length) return push.stackDNums;
-    if (push.dNumbers?.length)   return push.dNumbers;
-    if (push.dNumber)            return [push.dNumber];
+    if (push.dNumbers?.length) return push.dNumbers;
+    if (push.dNumber) return [push.dNumber];
     return [];
   }
 
@@ -234,8 +261,8 @@
   }
 
   // Builds the <table>/<tbody> wrapper for a list of push rows. Both
-   // panel factories use this to swap the table into their content slot
-   // — keeps the markup in one place so column changes are one edit.
+  // panel factories use this to swap the table into their content slot
+  // — keeps the markup in one place so column changes are one edit.
   function buildPushTable(pushes) {
     const tbody = el("tbody");
     for (const p of pushes) tbody.append(buildPushRow(p));
@@ -249,8 +276,8 @@
     const summary = statusSummary(push.health);
 
     tr.append(
-      nest(el("td", "pt-push-time greytext"),     relTime(push.push_timestamp)),
-      nest(el("td", "pt-push-repo"),              repoPill(push.repo)),
+      nest(el("td", "pt-push-time greytext"), relTime(push.push_timestamp)),
+      nest(el("td", "pt-push-repo"), repoPill(push.repo)),
       buildHashCell(push),
       buildCoveredCell(push),
       buildMetricsCell(push),
@@ -269,8 +296,8 @@
   // Reused by bugzilla-panel.js via window.ptBuildWarning.
 
   const CORS_ERRORS_URL = "https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS/Errors";
-  const statusReference = status =>
-    (status && status !== 200)
+  const statusReference = (status) =>
+    status && status !== 200
       ? `https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/${status}`
       : CORS_ERRORS_URL;
 
@@ -280,8 +307,7 @@
     // response due to CORS — the wire-level 200 was recorded by webRequest
     // before the CORS check ran. Label it the same as a pure network error.
     const isCors = !status || status === 200;
-    const code = el("a", "pt-warning-status",
-      isCors ? "CORS blocked" : `HTTP ${status}`);
+    const code = el("a", "pt-warning-status", isCors ? "CORS blocked" : `HTTP ${status}`);
     code.href = statusReference(status);
     code.target = "_blank";
     code.rel = "noopener noreferrer";
@@ -315,8 +341,9 @@
     const total = errors.length;
     const ws = total === 1 ? "" : "es";
     const header = el("div", "pt-warning-summary");
-    const toggle = withAction(el("a", null, "Details"),
-      () => { details.hidden = !details.hidden; });
+    const toggle = withAction(el("a", null, "Details"), () => {
+      details.hidden = !details.hidden;
+    });
     header.append(
       faIcon("fa-exclamation-triangle"),
       ` Some pushes may be missing — ${total} fetch${ws} failed. `,
@@ -330,8 +357,10 @@
   // --- Panel shell ---
 
   function buildShell(onReload) {
-    const panel = el("div",
-      "phui-box phui-box-border phui-object-box mlt mll mlr phui-box-blue-property pt-panel");
+    const panel = el(
+      "div",
+      "phui-box phui-box-border phui-object-box mlt mll mlr phui-box-blue-property pt-panel",
+    );
 
     const titleText = el("span", "pt-panel-title-text", "Pushes");
 
@@ -339,12 +368,17 @@
     nest(reloadLink, faIcon("fa-refresh"), document.createTextNode(" Reload"));
 
     panel.append(
-      nest(el("div", "phui-header-shell"),
-        nest(el("h1", "phui-header-view"),
-          nest(el("div", "phui-header-row"),
-            nest(el("div", "phui-header-col2"),
-              nest(el("span", "phui-header-header"), titleText)),
-            nest(el("div", "phui-header-col3"), reloadLink))))
+      nest(
+        el("div", "phui-header-shell"),
+        nest(
+          el("h1", "phui-header-view"),
+          nest(
+            el("div", "phui-header-row"),
+            nest(el("div", "phui-header-col2"), nest(el("span", "phui-header-header"), titleText)),
+            nest(el("div", "phui-header-col3"), reloadLink),
+          ),
+        ),
+      ),
     );
 
     // Direct children of the phui-box panel, no property-list wrappers —
@@ -357,7 +391,9 @@
     const list = el("div", "pt-push-list");
     panel.append(warning, status, list);
 
-    const setTitle = text => { titleText.textContent = text; };
+    const setTitle = (text) => {
+      titleText.textContent = text;
+    };
     return { panel, list, warning, status, setTitle };
   }
 
@@ -393,43 +429,46 @@
     function setPushes(pushes) {
       setTitle(`Pushes (${pushes.length})`);
       if (pushes.length) list.replaceChildren(buildPushTable(pushes));
-      else               stateRow(list, window.ptNoPushesMsg, "greytext pt-state-error");
+      else stateRow(list, window.ptNoPushesMsg, "greytext pt-state-error");
     }
 
     function setWarning(errors) {
       const banner = buildWarning(errors);
       if (banner) warning.replaceChildren(banner);
-      else        warning.replaceChildren();
+      else warning.replaceChildren();
     }
 
     function setStatus(message, done, total) {
-      if (!message) { status.replaceChildren(); return; }
+      if (!message) {
+        status.replaceChildren();
+        return;
+      }
       const row = nest(el("div", "pt-status-row greytext", message), progressBar(done, total));
       status.replaceChildren(row);
     }
 
     const ctrl = { el: panel, setLoading, setError, setPushes, setWarning, setStatus, setDInfos };
     panel.dataset.ptPanel = "1";
-    panel._ptCtrl = ctrl;  // lets updatePanel reach the controller without re-querying the DOM
+    panel._ptCtrl = ctrl; // lets updatePanel reach the controller without re-querying the DOM
     return ctrl;
   };
 
   // Shared utilities for bugzilla-panel.js
-  window.ptFaIcon              = faIcon;
-  window.ptNest                = nest;
-  window.ptEl                  = el;
-  window.ptWithAction          = withAction;
-  window.ptBuildPushRow        = buildPushRow;
-  window.ptBuildPushTable      = buildPushTable;
-  window.ptBuildWarning        = buildWarning;
-  window.ptProgressBar         = progressBar;
-  window.ptApplyResult         = applyResult;
+  window.ptFaIcon = faIcon;
+  window.ptNest = nest;
+  window.ptEl = el;
+  window.ptWithAction = withAction;
+  window.ptBuildPushRow = buildPushRow;
+  window.ptBuildPushTable = buildPushTable;
+  window.ptBuildWarning = buildWarning;
+  window.ptProgressBar = progressBar;
+  window.ptApplyResult = applyResult;
   // ptExtLink is provided by lib/icons.js (loaded first per manifest.json).
   // Bugzilla panel shares panel.js's buildDLink, which reads
   // `currentDInfos` from this IIFE's module scope. Expose the setter so
   // bugzilla-panel.js can prime it before calling setPushes.
-  window.ptSetDInfos           = setDInfos;
-  window.ptNoPushesMsg      = "No pushes found for this revision.";
+  window.ptSetDInfos = setDInfos;
+  window.ptNoPushesMsg = "No pushes found for this revision.";
 
   // Apply a result payload (dInfos + errors + pushes) to a controller in
   // the order setDInfos → setWarning → setPushes. setDInfos must run
@@ -450,18 +489,27 @@
     let handle = null;
     let stopped = false;
     async function tick() {
-      if (!document.contains(panelEl)) { stop(); return; }
+      if (!document.contains(panelEl)) {
+        stop();
+        return;
+      }
       try {
         // silent=true: no progress flash, no setStatus indicator. The
         // panel keeps the previously rendered rows visible until fresh
         // results arrive, then updates in place.
         const result = await fetchFn(msgPayload, true, true);
-        if (stopped) return;   // reload() fired while we were awaiting — discard result
+        if (stopped) return; // reload() fired while we were awaiting — discard result
         updatePanel(panelEl, result);
-        if (result.pushes.every(p => !isRunning(p))) stop();
-      } catch (e) { console.warn("[phab-try] auto-refresh failed", e); }
+        if (result.pushes.every((p) => !isRunning(p))) stop();
+      } catch (e) {
+        console.warn("[phab-try] auto-refresh failed", e);
+      }
     }
-    function stop() { stopped = true; clearInterval(handle); handle = null; }
+    function stop() {
+      stopped = true;
+      clearInterval(handle);
+      handle = null;
+    }
     handle = setInterval(tick, AUTO_REFRESH_MS);
     return stop;
   };

@@ -1,0 +1,5 @@
+node_modules/
+web-ext-artifacts/
+coverage/
+# Auto-generated — formatted by the script that produces it
+lib/fa-icons.js

@@ -15,6 +15,10 @@ updates:
         patterns:
           - "vitest"
           - "@vitest/*"
+      # stylelint + its config must move together for the same reason.
+      stylelint:
+        patterns:
+          - "stylelint*"
 
   # Keep pinned-SHA action references in .github/workflows current.
   # Without this, security-fixed action releases don't reach us.

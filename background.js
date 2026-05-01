@@ -16,23 +16,27 @@
 
 // Repos surfaced in the panel. Order is preserved for display.
 const TRACKED_REPOS = [
-  "try", "autoland", "mozilla-central",
-  "mozilla-beta", "mozilla-release",
-  "mozilla-esr140", "mozilla-esr115",
+  "try",
+  "autoland",
+  "mozilla-central",
+  "mozilla-beta",
+  "mozilla-release",
+  "mozilla-esr140",
+  "mozilla-esr115",
 ];
 
-const AUTHOR_HISTORY_COUNT   = 1000; // first author fetch
-const AUTHOR_HISTORY_INCR    = 200;  // incremental fetch when cache exists
-const RECENT_PUSHES_COUNT    = 500;  // recent-pushes scan window per repo
-const AUTHOR_HISTORY_FRESH_S = 120;  // re-fetch threshold for author history
-const ONE_HOUR_S             = 3600;
-const ENRICH_CONCURRENCY     = 5;
+const AUTHOR_HISTORY_COUNT = 1000; // first author fetch
+const AUTHOR_HISTORY_INCR = 200; // incremental fetch when cache exists
+const RECENT_PUSHES_COUNT = 500; // recent-pushes scan window per repo
+const AUTHOR_HISTORY_FRESH_S = 120; // re-fetch threshold for author history
+const ONE_HOUR_S = 3600;
+const ENRICH_CONCURRENCY = 5;
 // Walk concurrency reduced from 5 → 2 to avoid the Fastly anti-bot burst on
 // hg-edge. Combined with the author filter on walk candidates, a typical
 // first-load now incurs only single-digit hg-edge requests.
-const WALK_CONCURRENCY       = 2;
-const MAX_WALK_CANDIDATES    = 20;
-const KEEPALIVE_PERIOD_MIN   = 0.4;
+const WALK_CONCURRENCY = 2;
+const MAX_WALK_CANDIDATES = 20;
+const KEEPALIVE_PERIOD_MIN = 0.4;
 
 // All names referenced from this file are provided by lib/pure.js
 // (loaded before this script per manifest.json): the regex/text helpers
@@ -97,18 +101,20 @@ const FILTER = {
 
 if (browser.webRequest?.onHeadersReceived) {
   try {
-    const record = d => recordWebRequest(d.url, d.statusCode);
+    const record = (d) => recordWebRequest(d.url, d.statusCode);
     for (const event of ["onHeadersReceived", "onCompleted", "onErrorOccurred"])
       browser.webRequest[event]?.addListener(record, FILTER);
   } catch (e) {
     console.warn("[phab-try] webRequest registration failed:", e.message);
   }
 } else {
-  console.warn("[phab-try] webRequest unavailable —",
-    "the 'webRequest' permission may not be granted.");
+  console.warn(
+    "[phab-try] webRequest unavailable —",
+    "the 'webRequest' permission may not be granted.",
+  );
 }
 
-const consumeRecordedStatus = url => {
+const consumeRecordedStatus = (url) => {
   const s = webRequestStatus.get(url) ?? null;
   webRequestStatus.delete(url);
   return s;
@@ -121,8 +127,9 @@ const consumeRecordedStatus = url => {
 // CORS error before exposing r.status.
 async function fetchOk(url) {
   let r;
-  try { r = await fetch(url); }
-  catch (e) {
+  try {
+    r = await fetch(url);
+  } catch (e) {
     const status = consumeRecordedStatus(url);
     throw new FetchError(url, status, e.message);
   }
@@ -133,34 +140,40 @@ async function fetchOk(url) {
 
 async function fetchJson(url) {
   const r = await fetchOk(url);
-  try { return await r.json(); }
-  catch (e) { throw new FetchError(url, r.status, `Invalid JSON: ${e.message}`); }
+  try {
+    return await r.json();
+  } catch (e) {
+    throw new FetchError(url, r.status, `Invalid JSON: ${e.message}`);
+  }
 }
 
-const fetchText = url => fetchOk(url).then(r => r.text());
+const fetchText = (url) => fetchOk(url).then((r) => r.text());
 
 async function mapCapped(items, fn, cap, onProgress) {
   const results = [];
   let i = 0;
-  await Promise.all(Array.from({ length: Math.min(cap, items.length) }, async () => {
-    while (i < items.length) {
-      const idx = i++;
-      results[idx] = await safely(() => fn(items[idx]));
-      onProgress?.();
-    }
-  }));
-  return results.filter(r => r != null);
+  await Promise.all(
+    Array.from({ length: Math.min(cap, items.length) }, async () => {
+      while (i < items.length) {
+        const idx = i++;
+        results[idx] = await safely(() => fn(items[idx]));
+        onProgress?.();
+      }
+    }),
+  );
+  return results.filter((r) => r != null);
 }
 
 // dedupById, subjectsFromPush, FetchErrorTracker — globals from lib/pure.js.
 // `tracked()` wraps a fetch with error-recording onto the tracker.
 
 async function tracked(errors, fn) {
-  try { return await fn(); }
-  catch (e) {
+  try {
+    return await fn();
+  } catch (e) {
     if (errors) {
       if (e instanceof FetchError) errors.record(e.url, e.status, e.message);
-      else                         errors.record(null, null, e.message ?? String(e));
+      else errors.record(null, null, e.message ?? String(e));
     }
     return null;
   }
@@ -169,41 +182,45 @@ async function tracked(errors, fn) {
 // --- Cache (per DATA.md caching policy: only canonical immutable values) ---
 
 const PFX = {
-  dTitle:   "ptD-title:",     // dNumber → revisionTitle
-  dBug:     "ptD-bug:",       // dNumber → bugNumber
-  dCreator: "ptD-creator:",   // dNumber → patch-creator email
-  push:     "ptPush:",        // ${repo}:${revision} → push object minus health
-  health:   "ptHealth:",      // ${repo}:${revision} → health (only when complete)
-  hg:       "ptHg:",          // hg revision hash → { desc, parents }
-  history:  "ptAuthor:",      // ${repo}:${email} → { pushes, fetchedAt }
+  dTitle: "ptD-title:", // dNumber → revisionTitle
+  dBug: "ptD-bug:", // dNumber → bugNumber
+  dCreator: "ptD-creator:", // dNumber → patch-creator email
+  push: "ptPush:", // ${repo}:${revision} → push object minus health
+  health: "ptHealth:", // ${repo}:${revision} → health (only when complete)
+  hg: "ptHg:", // hg revision hash → { desc, parents }
+  history: "ptAuthor:", // ${repo}:${email} → { pushes, fetchedAt }
 };
 
-const dTitleCache   = new Map();
-const dBugCache     = new Map();
+const dTitleCache = new Map();
+const dBugCache = new Map();
 const dCreatorCache = new Map();
-const pushCache     = new Map();
-const healthCache   = new Map();
-const hgCache       = new Map();
-const historyCache  = new Map();
+const pushCache = new Map();
+const healthCache = new Map();
+const hgCache = new Map();
+const historyCache = new Map();
 
 const memCaches = [
-  [dTitleCache,   PFX.dTitle],
-  [dBugCache,     PFX.dBug],
+  [dTitleCache, PFX.dTitle],
+  [dBugCache, PFX.dBug],
   [dCreatorCache, PFX.dCreator],
-  [pushCache,     PFX.push],
-  [healthCache,   PFX.health],
-  [hgCache,       PFX.hg],
-  [historyCache,  PFX.history],
+  [pushCache, PFX.push],
+  [healthCache, PFX.health],
+  [hgCache, PFX.hg],
+  [historyCache, PFX.history],
 ];
 
 let memCacheLoad = null;
-const loadMemCache = () => memCacheLoad ??= safely(async () => {
-  const all = await browser.storage.local.get(null);
-  for (const [k, v] of Object.entries(all ?? {})) {
-    for (const [m, p] of memCaches)
-      if (k.startsWith(p)) { m.set(k.slice(p.length), v); break; }
-  }
-});
+const loadMemCache = () =>
+  (memCacheLoad ??= safely(async () => {
+    const all = await browser.storage.local.get(null);
+    for (const [k, v] of Object.entries(all ?? {})) {
+      for (const [m, p] of memCaches)
+        if (k.startsWith(p)) {
+          m.set(k.slice(p.length), v);
+          break;
+        }
+    }
+  }));
 
 // Persists ALL resolved values, including `null` — every cache here holds
 // canonical immutable answers, so a "no value" outcome (e.g. a D with no
@@ -223,7 +240,9 @@ const withInFlight = (key, fn) => {
   if (inFlight.has(key)) return inFlight.get(key);
   const p = (async () => fn())();
   inFlight.set(key, p);
-  p.finally(() => { if (inFlight.get(key) === p) inFlight.delete(key); });
+  p.finally(() => {
+    if (inFlight.get(key) === p) inFlight.delete(key);
+  });
   return p;
 };
 
@@ -233,13 +252,14 @@ const withInFlight = (key, fn) => {
 // the same response (title vs bug-link from /D{n} HTML, or different Ds'
 // creators from the same bug-attachment list) trigger only one fetch.
 const fetchPhabHtml = (d, errors) =>
-  withInFlight(`phab-html:${d}`,
-    () => tracked(errors, () => fetchText(phabRevUrl(d))));
+  withInFlight(`phab-html:${d}`, () => tracked(errors, () => fetchText(phabRevUrl(d))));
 
 const fetchBugAttachments = (bug, errors) =>
-  withInFlight(`bug-atts:${bug}`,
-    () => tracked(errors, () => fetchJson(bugAttachmentsUrl(bug)))
-      .then(data => data?.bugs?.[bug] ?? []));
+  withInFlight(`bug-atts:${bug}`, () =>
+    tracked(errors, () => fetchJson(bugAttachmentsUrl(bug))).then(
+      (data) => data?.bugs?.[bug] ?? [],
+    ),
+  );
 
 async function getDRevisionTitle(d, errors) {
   await loadMemCache();
@@ -264,9 +284,9 @@ async function getDStatus(d, errors) {
   if (dStatusCache.has(d)) return dStatusCache.get(d);
   return withInFlight(`status:${d}`, async () => {
     const html = await fetchPhabHtml(d, errors);
-    if (!html) return null;   // transient fetch failure — don't cache
+    if (!html) return null; // transient fetch failure — don't cache
     const status = extractDStatus(html);
-    dStatusCache.set(d, status);   // cache null too — "asked, no match"
+    dStatusCache.set(d, status); // cache null too — "asked, no match"
     return status;
   });
 }
@@ -276,7 +296,7 @@ async function getDBugNumber(d, errors) {
   if (dBugCache.has(d)) return dBugCache.get(d);
   return withInFlight(`bug:${d}`, async () => {
     const html = await fetchPhabHtml(d, errors);
-    if (!html) return null;   // transient fetch failure — don't cache
+    if (!html) return null; // transient fetch failure — don't cache
     const bug = html.match(BUG_URL_RE)?.[1] ?? null;
     setCache(dBugCache, PFX.dBug, d, bug);
     return bug;
@@ -286,7 +306,7 @@ async function getDBugNumber(d, errors) {
 async function getDCreator(d, bugHint, errors) {
   await loadMemCache();
   if (dCreatorCache.has(d)) return dCreatorCache.get(d);
-  const bug = bugHint ?? await getDBugNumber(d, errors);
+  const bug = bugHint ?? (await getDBugNumber(d, errors));
   if (!bug) return null;
   return withInFlight(`creator:${d}`, async () => {
     const atts = await fetchBugAttachments(bug, errors);
@@ -307,8 +327,7 @@ async function getHgRev(rev, errors) {
   await loadMemCache();
   if (hgCache.has(rev)) return hgCache.get(rev);
   return withInFlight(`hg:${rev}`, async () => {
-    const data = await tracked(errors,
-      () => fetchJson(hgRevUrl(rev)));
+    const data = await tracked(errors, () => fetchJson(hgRevUrl(rev)));
     if (!data) return null;
     const value = { desc: data.desc ?? "", parents: data.parents ?? [] };
     setCache(hgCache, PFX.hg, rev, value);
@@ -329,13 +348,15 @@ async function getPushObject(repo, rev, errors) {
   const key = pushCacheKey(repo, rev);
   if (pushCache.has(key)) return pushCache.get(key);
   return withInFlight(`push:${key}`, async () => {
-    const data = await tracked(errors,
-      () => fetchJson(treeherderPushByRevUrl(repo, rev)));
+    const data = await tracked(errors, () => fetchJson(treeherderPushByRevUrl(repo, rev)));
     const p = data?.results?.[0];
     if (!p) return null;
     const stripped = {
-      id: p.id, revision: p.revision, push_timestamp: p.push_timestamp,
-      author: p.author, revisions: p.revisions ?? [],
+      id: p.id,
+      revision: p.revision,
+      push_timestamp: p.push_timestamp,
+      author: p.author,
+      revisions: p.revisions ?? [],
     };
     setCache(pushCache, PFX.push, key, stripped);
     return stripped;
@@ -347,13 +368,11 @@ async function getPushHealth(repo, rev, errors) {
   const key = pushCacheKey(repo, rev);
   if (healthCache.has(key)) return healthCache.get(key);
   return withInFlight(`health:${key}`, async () => {
-    const data = await tracked(errors,
-      () => fetchJson(treeherderHealthUrl(repo, rev)));
+    const data = await tracked(errors, () => fetchJson(treeherderHealthUrl(repo, rev)));
     const h = Array.isArray(data) ? data[0] : data;
     if (!h) return null;
     const s = h.status ?? {};
-    if ((s.running || 0) === 0 && (s.pending || 0) === 0)
-      setCache(healthCache, PFX.health, key, h);
+    if ((s.running || 0) === 0 && (s.pending || 0) === 0) setCache(healthCache, PFX.health, key, h);
     return h;
   });
 }
@@ -372,8 +391,7 @@ async function getAuthorPushHistory(repo, email, errors) {
     });
     if (cached) params.set("push_timestamp__gt", String(cached.fetchedAt - ONE_HOUR_S));
 
-    const data = await tracked(errors,
-      () => fetchJson(treeherderAuthorHistoryUrl(repo, params)));
+    const data = await tracked(errors, () => fetchJson(treeherderAuthorHistoryUrl(repo, params)));
     // Transient fetch failure — return whatever we have without bumping
     // fetchedAt, so the next call retries instead of sitting on stale
     // data for AUTHOR_HISTORY_FRESH_S (and persisting that staleness to
@@ -387,14 +405,16 @@ async function getAuthorPushHistory(repo, email, errors) {
 }
 
 const getRecentPushes = (repo, count, errors) =>
-  withInFlight(`recent:${repo}:${count}`, () => tracked(errors,
-    () => fetchJson(treeherderRecentUrl(repo, count)))
-    .then(d => d?.results ?? []));
+  withInFlight(`recent:${repo}:${count}`, () =>
+    tracked(errors, () => fetchJson(treeherderRecentUrl(repo, count))).then(
+      (d) => d?.results ?? [],
+    ),
+  );
 
 // --- Cache-priming entry points (called from content-script DOM data) ---
 
-const primeDTitle   = (d, t) => setCache(dTitleCache,   PFX.dTitle,   d, t);
-const primeDBug     = (d, b) => setCache(dBugCache,     PFX.dBug,     d, b);
+const primeDTitle = (d, t) => setCache(dTitleCache, PFX.dTitle, d, t);
+const primeDBug = (d, b) => setCache(dBugCache, PFX.dBug, d, b);
 const primeDCreator = (d, c) => setCache(dCreatorCache, PFX.dCreator, d, c);
 
 // --- Push enrichment ---
@@ -414,9 +434,14 @@ async function enrichPush(push, repo, label, errors, backoutSets) {
     computeStackDNums(push, repo, errors),
   ]);
   return {
-    id: push.id, repo, revision: push.revision, push_timestamp: push.push_timestamp,
-    author: push.author, treeherder_url: treeherderJobsUrl(repo, push.revision),
-    health, stackDNums,
+    id: push.id,
+    repo,
+    revision: push.revision,
+    push_timestamp: push.push_timestamp,
+    author: push.author,
+    treeherder_url: treeherderJobsUrl(repo, push.revision),
+    health,
+    stackDNums,
     backedOut: isBackedOut(backoutSets?.[repo], push.revision),
     ...label,
   };
@@ -433,18 +458,21 @@ async function enrichPush(push, repo, label, errors, backoutSets) {
 // every candidate has been checked.
 async function walkParentDescs(candidates, predicate, errors, reportProgress, onMatch) {
   if (!candidates.length) return [];
-  const slice = candidates
-    .toSorted(byPushTimestampDesc)
-    .slice(0, MAX_WALK_CANDIDATES);
+  const slice = candidates.toSorted(byPushTimestampDesc).slice(0, MAX_WALK_CANDIDATES);
   reportProgress?.(`Checking parent commits (0/${slice.length})…`, 0, slice.length);
   let done = 0;
-  return mapCapped(slice, async p => {
-    const desc = await getHgParentDesc(p.revision, errors);
-    if (!desc || !predicate(desc)) return null;
-    if (onMatch) await safely(() => onMatch(p));
-    return p;
-  }, WALK_CONCURRENCY,
-    () => reportProgress?.(`Checking parent commits (${++done}/${slice.length})…`, done, slice.length));
+  return mapCapped(
+    slice,
+    async (p) => {
+      const desc = await getHgParentDesc(p.revision, errors);
+      if (!desc || !predicate(desc)) return null;
+      if (onMatch) await safely(() => onMatch(p));
+      return p;
+    },
+    WALK_CONCURRENCY,
+    () =>
+      reportProgress?.(`Checking parent commits (${++done}/${slice.length})…`, done, slice.length),
+  );
 }
 
 // --- Per-repo search primitives ---
@@ -465,10 +493,10 @@ async function walkParentDescs(candidates, predicate, errors, reportProgress, on
 async function gatherFromRepo(repo, creators, errors) {
   if (repo === "try") {
     const [histories, recent] = await Promise.all([
-      Promise.all(creators.map(c => getAuthorPushHistory(repo, c, errors))),
+      Promise.all(creators.map((c) => getAuthorPushHistory(repo, c, errors))),
       getRecentPushes(repo, RECENT_PUSHES_COUNT, errors),
     ]);
-    return dedupById([...histories.flatMap(h => h ?? []), ...(recent ?? [])]);
+    return dedupById([...histories.flatMap((h) => h ?? []), ...(recent ?? [])]);
   }
   // Landing repos (autoland, mozilla-central, beta, release, esr*): patches
   // always carry their canonical Diff Rev URL in commit messages, so a
@@ -489,19 +517,27 @@ async function gatherFromRepo(repo, creators, errors) {
 // once those slower fetches resolve. The panel updates each render
 // without blocking on hg-edge.
 
-async function enrichEntries(entries, errors, reportProgress, backoutSets, label = "Loading health") {
+async function enrichEntries(
+  entries,
+  errors,
+  reportProgress,
+  backoutSets,
+  label = "Loading health",
+) {
   if (!entries.length) return [];
   reportProgress?.(`${label} (0/${entries.length})…`, 0, entries.length);
   let done = 0;
-  return mapCapped(entries,
+  return mapCapped(
+    entries,
     ({ _repo, _push, _label }) => enrichPush(_push, _repo, _label ?? {}, errors, backoutSets),
     ENRICH_CONCURRENCY,
-    () => reportProgress?.(`${label} (${++done}/${entries.length})…`, done, entries.length));
+    () => reportProgress?.(`${label} (${++done}/${entries.length})…`, done, entries.length),
+  );
 }
 
 // Build per-repo target-hash sets from all "Backed out" commits in each
 // repo's recently-fetched push pool.
-const computeBackoutSets = perRepo =>
+const computeBackoutSets = (perRepo) =>
   Object.fromEntries(perRepo.map(({ repo, all }) => [repo, backoutTargets(all)]));
 
 // Prime { title, status } for every D-revision the panel will surface.
@@ -514,7 +550,7 @@ function collectDsFromPushes(pushes) {
   const ds = new Set();
   for (const p of pushes ?? []) {
     for (const d of p.stackDNums ?? []) ds.add(d);
-    if (p.dNumber)  ds.add(p.dNumber);
+    if (p.dNumber) ds.add(p.dNumber);
     if (p.dNumbers) for (const d of p.dNumbers) ds.add(d);
   }
   return ds;
@@ -524,14 +560,17 @@ function collectDsFromPushes(pushes) {
 // subsequent walk emits and we'll only resolve the *new* Ds, instead of
 // rebuilding the whole map each time `combined` grows.
 async function mergeDInfos(dInfos, pushes, errors) {
-  const fresh = [...collectDsFromPushes(pushes)].filter(d => !(d in dInfos));
+  const fresh = [...collectDsFromPushes(pushes)].filter((d) => !(d in dInfos));
   if (!fresh.length) return dInfos;
-  await Promise.all(fresh.map(async d => {
-    const [title, status] = await Promise.all([
-      getDRevisionTitle(d, errors), getDStatus(d, errors),
-    ]);
-    dInfos[d] = { title, status };
-  }));
+  await Promise.all(
+    fresh.map(async (d) => {
+      const [title, status] = await Promise.all([
+        getDRevisionTitle(d, errors),
+        getDStatus(d, errors),
+      ]);
+      dInfos[d] = { title, status };
+    }),
+  );
   return dInfos;
 }
 
@@ -552,16 +591,22 @@ async function runMultiRepoSearch({ errors, creators, matchText, labelFor, repor
   // Phase 1 — every Treeherder push list, fan out in parallel.
   reportProgress?.(`Searching ${TRACKED_REPOS.length} repos…`, 0, TRACKED_REPOS.length);
   let repoDone = 0;
-  const perRepo = await Promise.all(TRACKED_REPOS.map(async repo => {
-    const all = await gatherFromRepo(repo, creators, errors);
-    reportProgress?.(`Searching ${TRACKED_REPOS.length} repos…`, ++repoDone, TRACKED_REPOS.length);
-    return { repo, all };
-  }));
+  const perRepo = await Promise.all(
+    TRACKED_REPOS.map(async (repo) => {
+      const all = await gatherFromRepo(repo, creators, errors);
+      reportProgress?.(
+        `Searching ${TRACKED_REPOS.length} repos…`,
+        ++repoDone,
+        TRACKED_REPOS.length,
+      );
+      return { repo, all };
+    }),
+  );
 
   // Phase 2 — direct matches (Diff Rev URL or canonical Bug-N subject)
   // across every repo's recently-fetched pool.
   const direct = perRepo.flatMap(({ repo, all }) =>
-    all.filter(p => matchText(pushComments(p))).map(p => ({ _repo: repo, _push: p }))
+    all.filter((p) => matchText(pushComments(p))).map((p) => ({ _repo: repo, _push: p })),
   );
   direct.sort((a, b) => b._push.push_timestamp - a._push.push_timestamp);
 
@@ -570,8 +615,13 @@ async function runMultiRepoSearch({ errors, creators, matchText, labelFor, repor
 
   // Phase 3 — label (Bugzilla only), enrich, and emit direct matches.
   const labeled = labelFor
-    ? await Promise.all(direct.map(async ({ _repo, _push }) =>
-        ({ _repo, _push, _label: await labelFor(_push, _repo) })))
+    ? await Promise.all(
+        direct.map(async ({ _repo, _push }) => ({
+          _repo,
+          _push,
+          _label: await labelFor(_push, _repo),
+        })),
+      )
     : direct;
   const enrichedDirect = await enrichEntries(labeled, errors, reportProgress, backoutSets);
   const dInfos = await mergeDInfos({}, enrichedDirect, errors);
@@ -580,8 +630,8 @@ async function runMultiRepoSearch({ errors, creators, matchText, labelFor, repor
   // Phase 4 — hg-edge walks for try mach-try-auto. Each match is enriched
   // and emitted incrementally so the panel folds new pushes in as they
   // resolve, rather than waiting for the whole walk to finish.
-  const tryEntry = perRepo.find(e => e.repo === "try");
-  const directTryIds = new Set(direct.filter(e => e._repo === "try").map(e => e._push.id));
+  const tryEntry = perRepo.find((e) => e.repo === "try");
+  const directTryIds = new Set(direct.filter((e) => e._repo === "try").map((e) => e._push.id));
   const candidates = tryWalkCandidates(tryEntry?.all ?? [], creators, directTryIds);
   if (!candidates.length) return;
 
@@ -589,7 +639,7 @@ async function runMultiRepoSearch({ errors, creators, matchText, labelFor, repor
   // each emit snapshots the current `combined` array which is always
   // sorted, so the panel observes a monotonically growing set of pushes.
   const combined = [...enrichedDirect];
-  const onMatch = async push => {
+  const onMatch = async (push) => {
     const label = labelFor ? await labelFor(push, "try") : {};
     const enriched = await enrichPush(push, "try", label, errors, backoutSets);
     if (!enriched) return;
@@ -614,9 +664,10 @@ async function findPushesForD(dNumber, bugHint, reportProgress, emit) {
     errors,
     creators: creator ? [creator] : [],
     // Match by D only — bug-N would surface sibling-D pushes for the same bug.
-    matchText: text => extractDNums(text).includes(dNumber),
+    matchText: (text) => extractDNums(text).includes(dNumber),
     labelFor: null,
-    reportProgress, emit,
+    reportProgress,
+    emit,
   });
 }
 
@@ -626,32 +677,37 @@ async function findPushesForBug(bugNumber, dNumbers, reportProgress, emit) {
 
   // Resolve creators for each D (DOM-primed when on the bug page; otherwise
   // a single Bugzilla attachment fetch yields creators for all Ds at once).
-  const creators = [...new Set(
-    (await Promise.all(dNumbers.map(d => getDCreator(d, bugNumber, errors)))).filter(Boolean)
-  )];
+  const creators = [
+    ...new Set(
+      (await Promise.all(dNumbers.map((d) => getDCreator(d, bugNumber, errors)))).filter(Boolean),
+    ),
+  ];
 
   // Prime title fetches in parallel — used for the untagged-push relabel
   // fallback in labelFor when no D-URL appears in the commit text.
-  const titlesPromise = Promise.all(dNumbers.map(async d =>
-    [d, await getDRevisionTitle(d, errors)]));
+  const titlesPromise = Promise.all(
+    dNumbers.map(async (d) => [d, await getDRevisionTitle(d, errors)]),
+  );
 
   const dSet = new Set(dNumbers);
   const bugRe = bugRegex(bugNumber);
 
   return runMultiRepoSearch({
-    errors, creators,
-    matchText: text => extractDNums(text).some(d => dSet.has(d)) || bugRe.test(text),
+    errors,
+    creators,
+    matchText: (text) => extractDNums(text).some((d) => dSet.has(d)) || bugRe.test(text),
     labelFor: async (push, repo) => {
       const stack = await computeStackDNums(push, repo, errors);
-      const covers = stack.filter(d => dSet.has(d));
-      if (covers.length > 1)   return { dNumbers: [...covers].sort() };
+      const covers = stack.filter((d) => dSet.has(d));
+      if (covers.length > 1) return { dNumbers: [...covers].sort() };
       if (covers.length === 1) return { dNumber: covers[0] };
       const subjects = subjectsFromPush(push);
       const titles = Object.fromEntries(await titlesPromise);
-      const m = dNumbers.find(d => titleMatchesSubjects(titles[d], subjects));
+      const m = dNumbers.find((d) => titleMatchesSubjects(titles[d], subjects));
       return m ? { dNumber: m } : {};
     },
-    reportProgress, emit,
+    reportProgress,
+    emit,
   });
 }
 
@@ -664,36 +720,44 @@ async function resolveLinks(revision) {
   if (!push) return null;
 
   const text = pushComments(push);
-  let dNums   = extractDNums(text);
+  let dNums = extractDNums(text);
   let bugNums = extractBugNums(text);
 
   if (!dNums.length && !bugNums.length) {
     const desc = await hgPromise;
     if (desc) {
-      dNums   = extractDNums(desc);
+      dNums = extractDNums(desc);
       bugNums = extractBugNums(desc);
     }
   }
 
   if (dNums.length && !bugNums.length) {
-    const bugs = await Promise.all(dNums.map(d => getDBugNumber(d, errors)));
+    const bugs = await Promise.all(dNums.map((d) => getDBugNumber(d, errors)));
     bugNums = [...new Set(bugs.filter(Boolean))];
   }
 
   if (bugNums.length && !dNums.length) {
     const subjects = subjectsFromPush(push);
-    const candidates = (await Promise.all(bugNums.map(async b => {
-      const atts = await fetchBugAttachments(b, errors);
-      return atts.filter(a => !a.is_obsolete)
-        .map(a => a.file_name.match(PHAB_ATTACHMENT_RE)?.[1])
-        .filter(Boolean);
-    }))).flat();
-    const matched = await Promise.all([...new Set(candidates)].map(async d =>
-      titleMatchesSubjects(await getDRevisionTitle(d, errors), subjects) ? d : null));
+    const candidates = (
+      await Promise.all(
+        bugNums.map(async (b) => {
+          const atts = await fetchBugAttachments(b, errors);
+          return atts
+            .filter((a) => !a.is_obsolete)
+            .map((a) => a.file_name.match(PHAB_ATTACHMENT_RE)?.[1])
+            .filter(Boolean);
+        }),
+      )
+    ).flat();
+    const matched = await Promise.all(
+      [...new Set(candidates)].map(async (d) =>
+        titleMatchesSubjects(await getDRevisionTitle(d, errors), subjects) ? d : null,
+      ),
+    );
     dNums = matched.filter(Boolean);
   }
 
-  return (dNums.length || bugNums.length) ? { dNums, bugNums } : null;
+  return dNums.length || bugNums.length ? { dNums, bugNums } : null;
 }
 
 // --- Message routing ---
@@ -703,7 +767,7 @@ async function handleGetPushes(msg, reportProgress, emit) {
 
   // Cache priming from DOM data (URL → DOM tier of DATA.md priority order).
   if (revisionTitle && dNumber) primeDTitle(dNumber, revisionTitle);
-  if (bugNumber && dNumber)     primeDBug(dNumber, bugNumber);
+  if (bugNumber && dNumber) primeDBug(dNumber, bugNumber);
   if (bugNumber && dNumbers) for (const d of dNumbers) primeDBug(d, bugNumber);
   if (dCreators) for (const [d, c] of Object.entries(dCreators)) primeDCreator(d, c);
 
@@ -721,10 +785,12 @@ async function handleGetPushes(msg, reportProgress, emit) {
     const errors = new FetchErrorTracker();
     const re = bugRegex(bugNumber);
     return runMultiRepoSearch({
-      errors, creators: [],
-      matchText: text => re.test(text),
+      errors,
+      creators: [],
+      matchText: (text) => re.test(text),
       labelFor: null,
-      reportProgress, emit,
+      reportProgress,
+      emit,
     });
   }
 
@@ -738,7 +804,7 @@ async function handleGetDTitle(d) {
 
 async function handleFlushCaches() {
   for (const [m] of memCaches) m.clear();
-  dStatusCache.clear();   // in-memory-only volatile cache, not in memCaches
+  dStatusCache.clear(); // in-memory-only volatile cache, not in memCaches
   memCacheLoad = null;
   await safely(() => browser.storage.local.clear());
   return { ok: true };
@@ -746,15 +812,15 @@ async function handleFlushCaches() {
 
 browser.runtime.onMessage.addListener((msg, _sender) => {
   if (msg.type === "resolveLinks") return resolveLinks(msg.revision);
-  if (msg.type === "getDTitle")    return handleGetDTitle(msg.dNum);
-  if (msg.type === "flushCaches")  return handleFlushCaches();
+  if (msg.type === "getDTitle") return handleGetDTitle(msg.dNum);
+  if (msg.type === "flushCaches") return handleFlushCaches();
   // getPushes is intentionally not handled here: it's progressive and
   // uses the port-based onConnect path below to support multiple emits.
 });
 
-browser.runtime.onConnect.addListener(port => {
+browser.runtime.onConnect.addListener((port) => {
   if (port.name !== "getPushes") return;
-  port.onMessage.addListener(async msg => {
+  port.onMessage.addListener(async (msg) => {
     const report = (m, done, total) =>
       safely(() => port.postMessage({ type: "progress", message: m, done, total }));
     // emit() can be called multiple times — once for direct matches, again

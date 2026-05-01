@@ -6,11 +6,14 @@
   "scripts": {
     "generate-icons": "node generate-icons.mjs",
     "lint:js": "eslint background.js content/",
+    "lint:css": "stylelint \"content/**/*.css\" \"lib/**/*.css\"",
     "lint:ext": "web-ext lint",
-    "lint": "npm run lint:js && npm run lint:ext",
+    "lint": "npm run lint:js && npm run lint:css && npm run lint:ext",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "build": "web-ext build",
     "sign": "web-ext sign --channel=listed --amo-metadata=amo-metadata.json --approval-timeout=0"
   },
@@ -20,6 +23,9 @@
     "@vitest/coverage-v8": "^4.1.5",
     "eslint": "^10.2.1",
     "globals": "^17.5.0",
+    "prettier": "^3.8.3",
+    "stylelint": "^17.9.1",
+    "stylelint-config-standard": "^40.0.0",
     "vitest": "^4.1.5",
     "web-ext": "^10.1.0"
   }

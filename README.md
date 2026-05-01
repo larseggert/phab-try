@@ -4,9 +4,9 @@ Firefox extension that surfaces [Treeherder](https://treeherder.mozilla.org) try
 
 ## What it does
 
-### Try Pushes panel (Phabricator and Bugzilla)
+### Pushes panel (Phabricator and Bugzilla)
 
-Adds a **Try Pushes** panel above the Details section on Phabricator D* pages and above the comments on Bugzilla bug pages. For each try push associated with the revision or bug it shows:
+Adds a **Pushes** panel above the Details section on Phabricator D\* pages and above the comments on Bugzilla bug pages. For each try push associated with the revision or bug it shows:
 
 - Timestamp
 - Short revision hash (links to Treeherder)
