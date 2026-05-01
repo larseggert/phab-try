@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "phab-try",
   "version": "0.3.1",
-  "description": "Surfaces Treeherder try push status on Phabricator and Bugzilla pages.",
+  "description": "Surfaces Treeherder push status on Phabricator and Bugzilla pages.",
   "browser_specific_settings": {
     "gecko": {
       "id": "phab-try@lars.eggert.org",
@@ -31,14 +31,20 @@
   "content_scripts": [
     {
       "matches": ["https://treeherder.mozilla.org/jobs*"],
-      "js": ["lib/pure.js", "lib/fa-icons.js", "lib/icons.js", "content/treeherder.js"],
+      "js": [
+        "lib/pure.js",
+        "lib/fa-icons.js",
+        "lib/icons.js",
+        "content/treeherder.js"
+      ],
       "css": ["lib/badges.css", "content/treeherder.css"]
     },
     {
       "matches": ["https://phabricator.services.mozilla.com/D*"],
       "js": [
         "lib/pure.js",
-        "lib/fa-icons.js", "lib/icons.js",
+        "lib/fa-icons.js",
+        "lib/icons.js",
         "content/panel.js",
         "content/panel-controller.js",
         "content/phabricator.js"
@@ -49,7 +55,8 @@
       "matches": ["https://bugzilla.mozilla.org/show_bug.cgi*"],
       "js": [
         "lib/pure.js",
-        "lib/fa-icons.js", "lib/icons.js",
+        "lib/fa-icons.js",
+        "lib/icons.js",
         "content/panel.js",
         "content/bugzilla-panel.js",
         "content/panel-controller.js",

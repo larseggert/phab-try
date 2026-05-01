@@ -5,7 +5,7 @@
    badges mirrored on Bugzilla (panel.css), and the D-link badges below
    all reference these vars instead of repeating literal hex tuples. */
 
-:root, [data-pt-links], .pt-try-panel, #module-try-pushes {
+:root, [data-pt-links], .pt-panel, #module-pushes {
   --pt-blue-bg:   #e6f0fa; --pt-blue-fg:   #2570a3; --pt-blue-bd:   #c8def0;
   --pt-green-bg:  #e7f4e8; --pt-green-fg:  #1e8449; --pt-green-bd:  #c8e6c9;
   --pt-violet-bg: #f0e6f9; --pt-violet-fg: #6c3483; --pt-violet-bd: #d5b8e8;
@@ -23,7 +23,7 @@
    weight/specific-display deltas on top of this baseline. */
 .pt-repo-pill,
 .pt-push-dlink,
-#module-try-pushes .phui-tag-view {
+#module-pushes .phui-tag-view {
   border-radius: 3px;
   padding: 0 6px;
   font-size: 11px;

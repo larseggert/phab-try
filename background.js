@@ -478,7 +478,7 @@ async function gatherFromRepo(repo, creators, errors) {
 }
 
 // tryWalkCandidates lives in lib/pure.js — picks out try mach-try-auto
-// candidates from a try push pool (creator-authored, no Diff Rev URL).
+// candidates from a push pool (creator-authored, no Diff Rev URL).
 
 // --- Top-level search algorithms ---
 //
@@ -698,7 +698,7 @@ async function resolveLinks(revision) {
 
 // --- Message routing ---
 
-async function handleGetTryPushes(msg, reportProgress, emit) {
+async function handleGetPushes(msg, reportProgress, emit) {
   const { dNumber, dNumbers, bugNumber, dCreators, revisionTitle } = msg;
 
   // Cache priming from DOM data (URL → DOM tier of DATA.md priority order).
@@ -748,12 +748,12 @@ browser.runtime.onMessage.addListener((msg, _sender) => {
   if (msg.type === "resolveLinks") return resolveLinks(msg.revision);
   if (msg.type === "getDTitle")    return handleGetDTitle(msg.dNum);
   if (msg.type === "flushCaches")  return handleFlushCaches();
-  // getTryPushes is intentionally not handled here: it's progressive and
+  // getPushes is intentionally not handled here: it's progressive and
   // uses the port-based onConnect path below to support multiple emits.
 });
 
 browser.runtime.onConnect.addListener(port => {
-  if (port.name !== "getTryPushes") return;
+  if (port.name !== "getPushes") return;
   port.onMessage.addListener(async msg => {
     const report = (m, done, total) =>
       safely(() => port.postMessage({ type: "progress", message: m, done, total }));
@@ -762,10 +762,10 @@ browser.runtime.onConnect.addListener(port => {
     const emit = ({ pushes, errors, dInfos }) =>
       safely(() => port.postMessage({ type: "result", pushes, errors, dInfos }));
     try {
-      await handleGetTryPushes(msg, report, emit);
+      await handleGetPushes(msg, report, emit);
       port.postMessage({ type: "complete" });
     } catch (e) {
-      console.error("[phab-try] handleGetTryPushes threw:", e);
+      console.error("[phab-try] handleGetPushes threw:", e);
       port.postMessage({ type: "error", message: e.message });
     }
   });

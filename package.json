@@ -1,7 +1,7 @@
 {
   "name": "phab-try",
   "version": "0.1.0",
-  "description": "Surfaces Treeherder try push status on Phabricator and Bugzilla pages.",
+  "description": "Surfaces Treeherder push status on Phabricator and Bugzilla pages.",
   "private": true,
   "scripts": {
     "generate-icons": "node generate-icons.mjs",

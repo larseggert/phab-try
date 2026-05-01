@@ -2,7 +2,7 @@
 //                   ptCreateBugzillaPanel deps (ptEl/ptNest/ptWithAction/
 //                   ptFaIcon/ptBuildPushRow/ptBuildPushTable/ptBuildWarning/
 //                   ptProgressBar/ptApplyResult/ptExtLink/ptSetDInfos/
-//                   ptNoTryPushesMsg).
+//                   ptNoPushesMsg).
 
 (function () {
   "use strict";
@@ -331,9 +331,9 @@
 
   function buildShell(onReload) {
     const panel = el("div",
-      "phui-box phui-box-border phui-object-box mlt mll mlr phui-box-blue-property pt-try-panel");
+      "phui-box phui-box-border phui-object-box mlt mll mlr phui-box-blue-property pt-panel");
 
-    const titleText = el("span", "pt-panel-title-text", "Try Pushes");
+    const titleText = el("span", "pt-panel-title-text", "Pushes");
 
     const reloadLink = withAction(el("a", "phui-header-action-link"), onReload);
     nest(reloadLink, faIcon("fa-refresh"), document.createTextNode(" Reload"));
@@ -376,7 +376,7 @@
   window.ptCreatePanel = function (onReload) {
     const { panel, list, warning, status, setTitle } = buildShell(onReload);
 
-    const resetTitle = () => setTitle("Try Pushes");
+    const resetTitle = () => setTitle("Pushes");
 
     function setLoading(message, done, total) {
       resetTitle();
@@ -391,9 +391,9 @@
     }
 
     function setPushes(pushes) {
-      setTitle(`Try Pushes (${pushes.length})`);
+      setTitle(`Pushes (${pushes.length})`);
       if (pushes.length) list.replaceChildren(buildPushTable(pushes));
-      else               stateRow(list, window.ptNoTryPushesMsg, "greytext pt-state-error");
+      else               stateRow(list, window.ptNoPushesMsg, "greytext pt-state-error");
     }
 
     function setWarning(errors) {
@@ -429,7 +429,7 @@
   // `currentDInfos` from this IIFE's module scope. Expose the setter so
   // bugzilla-panel.js can prime it before calling setPushes.
   window.ptSetDInfos           = setDInfos;
-  window.ptNoTryPushesMsg      = "No try pushes found for this revision.";
+  window.ptNoPushesMsg      = "No pushes found for this revision.";
 
   // Apply a result payload (dInfos + errors + pushes) to a controller in
   // the order setDInfos → setWarning → setPushes. setDInfos must run
