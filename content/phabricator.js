@@ -14,8 +14,10 @@
   // it as a bugzilla.../show_bug.cgi?id=N hyperlink and as a "Bug N" prefix
   // in the page title / header.
   function getBugNumber() {
-    for (const src of [document.title,
-                       document.querySelector(".phui-header-header")?.textContent ?? ""]) {
+    for (const src of [
+      document.title,
+      document.querySelector(".phui-header-header")?.textContent ?? "",
+    ]) {
       const n = src.match(/\bBug\s+(\d+)/i)?.[1];
       if (n) return n;
     }
@@ -32,8 +34,10 @@
         node = node.parentElement;
       }
     }
-    return document.querySelector(".phui-main-column > .phui-box")
-        ?? document.querySelector(".phui-two-column-content .phui-box");
+    return (
+      document.querySelector(".phui-main-column > .phui-box") ??
+      document.querySelector(".phui-two-column-content .phui-box")
+    );
   }
 
   function init() {

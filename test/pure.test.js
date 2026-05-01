@@ -3,26 +3,44 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  extractDNums, extractBugNums,
-  bugRegex, normSubject, stripPhabSuffix,
-  titleMatchesSubjects, pushComments, tryWalkCandidates,
+  extractDNums,
+  extractBugNums,
+  bugRegex,
+  normSubject,
+  stripPhabSuffix,
+  titleMatchesSubjects,
+  pushComments,
+  tryWalkCandidates,
   escapeHostName,
-  subjectsFromPush, dedupById, byPushTimestampDesc,
-  treeherderJobsUrl, treeherderPushByRevUrl, treeherderHealthUrl,
-  treeherderRecentUrl, treeherderAuthorHistoryUrl,
-  hgRevUrl, phabRevUrl, bugAttachmentsUrl,
-  pushCacheKey, historyCacheKey,
+  subjectsFromPush,
+  dedupById,
+  byPushTimestampDesc,
+  treeherderJobsUrl,
+  treeherderPushByRevUrl,
+  treeherderHealthUrl,
+  treeherderRecentUrl,
+  treeherderAuthorHistoryUrl,
+  hgRevUrl,
+  phabRevUrl,
+  bugAttachmentsUrl,
+  pushCacheKey,
+  historyCacheKey,
   FetchErrorTracker,
-  extractDStatus, dRevisionIsAbandoned, dRevisionIsLanded,
-  bugIsClosed, bugIsLanded, bugIsDuplicate, bugIsClosedNoLand,
-  backoutTargets, isBackedOut,
+  extractDStatus,
+  dRevisionIsAbandoned,
+  dRevisionIsLanded,
+  bugIsClosed,
+  bugIsLanded,
+  bugIsDuplicate,
+  bugIsClosedNoLand,
+  backoutTargets,
+  isBackedOut,
 } from "../lib/pure.js";
 
 // Shared push fixture for tests that build a single-revision push from a
 // commit message. Both `tryWalkCandidates` and `backoutTargets` test
 // blocks need this; named opts make the call site self-explanatory.
-const mkPush = ({ id = "p1", author, comments }) =>
-  ({ id, author, revisions: [{ comments }] });
+const mkPush = ({ id = "p1", author, comments }) => ({ id, author, revisions: [{ comments }] });
 
 describe("extractDNums", () => {
   it("finds the canonical Differential Revision URL", () => {
@@ -67,24 +85,21 @@ describe("extractDNums", () => {
 
   it("rejects D-URL with non-digit suffix as a different identifier", () => {
     // "phab/D296708abcdef" should not be parsed as 296708 — \b boundary.
-    const text =
-      "Differential Revision: https://phabricator.services.mozilla.com/D296708abcdef";
+    const text = "Differential Revision: https://phabricator.services.mozilla.com/D296708abcdef";
     expect(extractDNums(text)).toEqual([]);
   });
 
   it("matches a lowercased 'differential revision:' marker (case-insensitive)", () => {
     // The regex carries the `i` flag, so commits that lowercase the marker
     // (rare in hg but legal) still resolve.
-    const text =
-      "differential revision: https://phabricator.services.mozilla.com/D42";
+    const text = "differential revision: https://phabricator.services.mozilla.com/D42";
     expect(extractDNums(text)).toEqual(["42"]);
   });
 
   it("rejects D-URLs hosted on a different Phabricator instance", () => {
     // We only trust phabricator.services.mozilla.com; another instance's
     // D-URL is a coincidental string match and must not leak into results.
-    const text =
-      "Differential Revision: https://phabricator.example.com/D42";
+    const text = "Differential Revision: https://phabricator.example.com/D42";
     expect(extractDNums(text)).toEqual([]);
   });
 });
@@ -168,8 +183,7 @@ describe("bugRegex", () => {
 
 describe("normSubject", () => {
   it("strips 'Bug N - ' prefix and 'r=reviewer' suffix", () => {
-    expect(normSubject("Bug 1234 - Add foo r=jane"))
-      .toBe("add foo");
+    expect(normSubject("Bug 1234 - Add foo r=jane")).toBe("add foo");
   });
 
   it("lowercases", () => {
@@ -251,7 +265,7 @@ describe("titleMatchesSubjects", () => {
 
   it("returns false when title is null / empty", () => {
     expect(titleMatchesSubjects(null, ["any subject text here long enough"])).toBe(false);
-    expect(titleMatchesSubjects("",   ["any subject text here long enough"])).toBe(false);
+    expect(titleMatchesSubjects("", ["any subject text here long enough"])).toBe(false);
   });
 
   it("returns false when every subject is shorter than MIN_TITLE_MATCH_LEN", () => {
@@ -302,29 +316,37 @@ describe("tryWalkCandidates", () => {
   });
 
   it("excludes pushes that already carry a Diff Rev URL (not mach-try-auto)", () => {
-    const pool = [mkPush({ author: ME,
-      comments: "Bug 1 - thing\n\nDifferential Revision: https://phabricator.services.mozilla.com/D9" })];
+    const pool = [
+      mkPush({
+        author: ME,
+        comments:
+          "Bug 1 - thing\n\nDifferential Revision: https://phabricator.services.mozilla.com/D9",
+      }),
+    ];
     expect(tryWalkCandidates(pool, [ME], new Set())).toEqual([]);
   });
 
   it("matches against a Set of multiple creators (Bugzilla page case)", () => {
     const pool = [
       mkPush({ id: "p1", author: "alice@mozilla.com", comments: "try: ..." }),
-      mkPush({ id: "p2", author: "bob@mozilla.com",   comments: "try: ..." }),
-      mkPush({ id: "p3", author: "eve@mozilla.com",   comments: "try: ..." }),
+      mkPush({ id: "p2", author: "bob@mozilla.com", comments: "try: ..." }),
+      mkPush({ id: "p3", author: "eve@mozilla.com", comments: "try: ..." }),
     ];
-    expect(tryWalkCandidates(pool, ["alice@mozilla.com", "bob@mozilla.com"], new Set()))
-      .toHaveLength(2);
+    expect(
+      tryWalkCandidates(pool, ["alice@mozilla.com", "bob@mozilla.com"], new Set()),
+    ).toHaveLength(2);
   });
 });
 
 describe("subjectsFromPush", () => {
   it("normalizes the first line of every revision and drops empty ones", () => {
-    const push = { revisions: [
-      { comments: "Bug 1 - Add foo r=jane\n\nbody text" },
-      { comments: "Refactor THE Thing\n\nmore" },
-      { comments: "" },
-    ]};
+    const push = {
+      revisions: [
+        { comments: "Bug 1 - Add foo r=jane\n\nbody text" },
+        { comments: "Refactor THE Thing\n\nmore" },
+        { comments: "" },
+      ],
+    };
     expect(subjectsFromPush(push)).toEqual(["add foo", "refactor the thing"]);
   });
 
@@ -340,13 +362,19 @@ describe("subjectsFromPush", () => {
 
 describe("dedupById", () => {
   it("keeps first occurrence and drops later duplicates by id", () => {
-    const arr = [{ id: 1, n: "a" }, { id: 2, n: "b" }, { id: 1, n: "c" }];
-    expect(dedupById(arr)).toEqual([{ id: 1, n: "a" }, { id: 2, n: "b" }]);
+    const arr = [
+      { id: 1, n: "a" },
+      { id: 2, n: "b" },
+      { id: 1, n: "c" },
+    ];
+    expect(dedupById(arr)).toEqual([
+      { id: 1, n: "a" },
+      { id: 2, n: "b" },
+    ]);
   });
 
   it("filters out null / undefined entries", () => {
-    expect(dedupById([null, { id: 1 }, undefined, { id: 2 }]))
-      .toEqual([{ id: 1 }, { id: 2 }]);
+    expect(dedupById([null, { id: 1 }, undefined, { id: 2 }])).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
   it("accepts null / undefined input as empty", () => {
@@ -362,8 +390,7 @@ describe("byPushTimestampDesc", () => {
       { id: "b", push_timestamp: 300 },
       { id: "c", push_timestamp: 200 },
     ];
-    expect([...pushes].sort(byPushTimestampDesc).map(p => p.id))
-      .toEqual(["b", "c", "a"]);
+    expect([...pushes].sort(byPushTimestampDesc).map((p) => p.id)).toEqual(["b", "c", "a"]);
   });
 });
 
@@ -373,30 +400,46 @@ describe("URL builders", () => {
   const histParams = new URLSearchParams({ author: "a@b.c", count: "200" });
 
   it.each([
-    ["treeherderJobsUrl includes repo and revision",
+    [
+      "treeherderJobsUrl includes repo and revision",
       () => treeherderJobsUrl("autoland", "abc123"),
-      "https://treeherder.mozilla.org/jobs?repo=autoland&revision=abc123"],
-    ["treeherderPushByRevUrl uses ?revision= for single-push lookup",
+      "https://treeherder.mozilla.org/jobs?repo=autoland&revision=abc123",
+    ],
+    [
+      "treeherderPushByRevUrl uses ?revision= for single-push lookup",
       () => treeherderPushByRevUrl("try", "deadbeef"),
-      "https://treeherder.mozilla.org/api/project/try/push/?revision=deadbeef"],
-    ["treeherderHealthUrl hits the health_summary endpoint",
+      "https://treeherder.mozilla.org/api/project/try/push/?revision=deadbeef",
+    ],
+    [
+      "treeherderHealthUrl hits the health_summary endpoint",
       () => treeherderHealthUrl("mozilla-central", "cafef00d"),
-      "https://treeherder.mozilla.org/api/project/mozilla-central/push/health_summary/?revision=cafef00d"],
-    ["treeherderRecentUrl uses ?count= for windowed scan",
+      "https://treeherder.mozilla.org/api/project/mozilla-central/push/health_summary/?revision=cafef00d",
+    ],
+    [
+      "treeherderRecentUrl uses ?count= for windowed scan",
       () => treeherderRecentUrl("try", 500),
-      "https://treeherder.mozilla.org/api/project/try/push/?count=500"],
-    ["treeherderAuthorHistoryUrl appends URLSearchParams verbatim",
+      "https://treeherder.mozilla.org/api/project/try/push/?count=500",
+    ],
+    [
+      "treeherderAuthorHistoryUrl appends URLSearchParams verbatim",
       () => treeherderAuthorHistoryUrl("try", histParams),
-      "https://treeherder.mozilla.org/api/project/try/push/?author=a%40b.c&count=200"],
-    ["hgRevUrl points at hg-edge json-rev under /try",
+      "https://treeherder.mozilla.org/api/project/try/push/?author=a%40b.c&count=200",
+    ],
+    [
+      "hgRevUrl points at hg-edge json-rev under /try",
       () => hgRevUrl("c0ffee"),
-      "https://hg-edge.mozilla.org/try/json-rev/c0ffee"],
-    ["phabRevUrl emits the canonical /D{n} path",
+      "https://hg-edge.mozilla.org/try/json-rev/c0ffee",
+    ],
+    [
+      "phabRevUrl emits the canonical /D{n} path",
       () => phabRevUrl("296708"),
-      "https://phabricator.services.mozilla.com/D296708"],
-    ["bugAttachmentsUrl asks only for the fields we use",
+      "https://phabricator.services.mozilla.com/D296708",
+    ],
+    [
+      "bugAttachmentsUrl asks only for the fields we use",
       () => bugAttachmentsUrl("2026686"),
-      "https://bugzilla.mozilla.org/rest/bug/2026686/attachment?include_fields=file_name,is_obsolete,creator"],
+      "https://bugzilla.mozilla.org/rest/bug/2026686/attachment?include_fields=file_name,is_obsolete,creator",
+    ],
   ])("%s", (_name, build, expected) => {
     expect(build()).toBe(expected);
   });
@@ -416,14 +459,15 @@ describe("extractDStatus", () => {
   // Real Phab markup uses class="phui-header-subheader" wrapping a
   // phui-tag-view → phui-tag-core span. The first inner span is an icon
   // (aria-hidden), the trailing text is the status.
-  const wrap = status =>
+  const wrap = (status) =>
     `<div class="phui-header-subheader"><span class="phui-tag-view phui-tag-shade">` +
     `<span class="phui-tag-core "><span class="phui-icon-view fa-plane" aria-hidden="true"></span>` +
     `${status}</span></span></div>`;
 
   it.each(["Abandoned", "Closed", "Needs Review", "Changes Planned"])(
     "extracts '%s' from the header subheader",
-    status => expect(extractDStatus(wrap(status))).toBe(status));
+    (status) => expect(extractDStatus(wrap(status))).toBe(status),
+  );
 
   it("returns null when the subheader is absent", () => {
     expect(extractDStatus("<html><body><h1>nothing</h1></body></html>")).toBeNull();
@@ -452,11 +496,11 @@ describe("dRevisionIsAbandoned / dRevisionIsLanded", () => {
 });
 
 describe("bug status helpers", () => {
-  const open      = { status: "NEW",      resolution: "",         is_open: true  };
-  const fixed     = { status: "RESOLVED", resolution: "FIXED",    is_open: false };
-  const wontfix   = { status: "RESOLVED", resolution: "WONTFIX",  is_open: false };
-  const dup       = { status: "RESOLVED", resolution: "DUPLICATE",is_open: false };
-  const verified  = { status: "VERIFIED", resolution: "FIXED",    is_open: false };
+  const open = { status: "NEW", resolution: "", is_open: true };
+  const fixed = { status: "RESOLVED", resolution: "FIXED", is_open: false };
+  const wontfix = { status: "RESOLVED", resolution: "WONTFIX", is_open: false };
+  const dup = { status: "RESOLVED", resolution: "DUPLICATE", is_open: false };
+  const verified = { status: "VERIFIED", resolution: "FIXED", is_open: false };
 
   it("bugIsClosed prefers the boolean is_open field when present", () => {
     expect(bugIsClosed(open)).toBe(false);
@@ -493,8 +537,12 @@ describe("bug status helpers", () => {
   it("bugIsClosedNoLand covers every closed-without-fix resolution", () => {
     expect(bugIsClosedNoLand(wontfix)).toBe(true);
     expect(bugIsClosedNoLand(dup)).toBe(true);
-    expect(bugIsClosedNoLand({ status: "RESOLVED", resolution: "INVALID",  is_open: false })).toBe(true);
-    expect(bugIsClosedNoLand({ status: "RESOLVED", resolution: "INCOMPLETE", is_open: false })).toBe(true);
+    expect(bugIsClosedNoLand({ status: "RESOLVED", resolution: "INVALID", is_open: false })).toBe(
+      true,
+    );
+    expect(
+      bugIsClosedNoLand({ status: "RESOLVED", resolution: "INCOMPLETE", is_open: false }),
+    ).toBe(true);
     // Landed (FIXED) and open bugs do NOT count.
     expect(bugIsClosedNoLand(fixed)).toBe(false);
     expect(bugIsClosedNoLand(open)).toBe(false);
@@ -503,10 +551,14 @@ describe("bug status helpers", () => {
 
 describe("backoutTargets / isBackedOut", () => {
   it("collects 12-char prefixes from 'Backed out changeset HASH' lines", () => {
-    const pool = [mkPush({ comments:
-      "Backed out 2 changesets (Bug 1) for failures CLOSED TREE\n" +
-      "Backed out changeset abc123def456 (Bug 2)\n" +
-      "Backed out changeset 7e8f9a0b1c2d (Bug 3)" })];
+    const pool = [
+      mkPush({
+        comments:
+          "Backed out 2 changesets (Bug 1) for failures CLOSED TREE\n" +
+          "Backed out changeset abc123def456 (Bug 2)\n" +
+          "Backed out changeset 7e8f9a0b1c2d (Bug 3)",
+      }),
+    ];
     const set = backoutTargets(pool);
     expect(set.has("abc123def456")).toBe(true);
     expect(set.has("7e8f9a0b1c2d")).toBe(true);
@@ -514,14 +566,19 @@ describe("backoutTargets / isBackedOut", () => {
   });
 
   it("ignores prose mentions like 'we should back out X' (not a backout subject)", () => {
-    const pool = [mkPush({ comments:
-      "Bug 1 - thing r=jane\n\nwe should back out abc123def456 next week if this regresses" })];
+    const pool = [
+      mkPush({
+        comments:
+          "Bug 1 - thing r=jane\n\nwe should back out abc123def456 next week if this regresses",
+      }),
+    ];
     expect(backoutTargets(pool).size).toBe(0);
   });
 
   it("normalises target hashes to lowercase 12-char prefixes", () => {
-    const pool = [mkPush({ comments:
-      "Backed out changeset ABC123DEF456789ABCDEF0123456789ABCDEF012" })];
+    const pool = [
+      mkPush({ comments: "Backed out changeset ABC123DEF456789ABCDEF0123456789ABCDEF012" }),
+    ];
     expect([...backoutTargets(pool)]).toEqual(["abc123def456"]);
   });
 
@@ -545,8 +602,8 @@ describe("backoutTargets / isBackedOut", () => {
 
   it("backoutTargets is robust to pushes with missing revisions / empty comments", () => {
     const pool = [
-      { id: "p1" },                                  // no revisions
-      { id: "p2", revisions: [{}] },                 // revision without comments
+      { id: "p1" }, // no revisions
+      { id: "p2", revisions: [{}] }, // revision without comments
       { id: "p3", revisions: [{ comments: "Bug 1 - thing" }] }, // not a backout
     ];
     expect(backoutTargets(pool).size).toBe(0);
@@ -562,10 +619,18 @@ describe("FetchErrorTracker", () => {
   it("records {url, status, message} entries in insertion order", () => {
     const t = new FetchErrorTracker();
     t.record("https://hg-edge.mozilla.org/try/json-rev/abc", 406, "blocked");
-    t.record("https://treeherder.mozilla.org/api/project/try/push/?count=500", null, "Network error");
+    t.record(
+      "https://treeherder.mozilla.org/api/project/try/push/?count=500",
+      null,
+      "Network error",
+    );
     expect(t.toJSON()).toEqual([
       { url: "https://hg-edge.mozilla.org/try/json-rev/abc", status: 406, message: "blocked" },
-      { url: "https://treeherder.mozilla.org/api/project/try/push/?count=500", status: null, message: "Network error" },
+      {
+        url: "https://treeherder.mozilla.org/api/project/try/push/?count=500",
+        status: null,
+        message: "Network error",
+      },
     ]);
   });
 
@@ -575,7 +640,6 @@ describe("FetchErrorTracker", () => {
     // path and is a fair stand-in for the serialization shape.
     const t = new FetchErrorTracker();
     t.record("u", 500, "boom");
-    expect(JSON.parse(JSON.stringify(t)))
-      .toEqual([{ url: "u", status: 500, message: "boom" }]);
+    expect(JSON.parse(JSON.stringify(t))).toEqual([{ url: "u", status: 500, message: "boom" }]);
   });
 });

@@ -31,12 +31,7 @@
   "content_scripts": [
     {
       "matches": ["https://treeherder.mozilla.org/jobs*"],
-      "js": [
-        "lib/pure.js",
-        "lib/fa-icons.js",
-        "lib/icons.js",
-        "content/treeherder.js"
-      ],
+      "js": ["lib/pure.js", "lib/fa-icons.js", "lib/icons.js", "content/treeherder.js"],
       "css": ["lib/badges.css", "content/treeherder.css"]
     },
     {

@@ -22,9 +22,10 @@
   //    attachments table row — Bugzilla renders the actual email here,
   //    no domain assumption needed)
   function getPhabAttachments() {
-    return [...document.querySelectorAll(".attachment[data-id]")].flatMap(el => {
-      const dNumber = el.querySelector('meta[itemprop="name"]')?.content
-        ?.match(PHAB_ATTACHMENT_RE)?.[1];
+    return [...document.querySelectorAll(".attachment[data-id]")].flatMap((el) => {
+      const dNumber = el
+        .querySelector('meta[itemprop="name"]')
+        ?.content?.match(PHAB_ATTACHMENT_RE)?.[1];
       if (!dNumber) return [];
       const attachmentId = el.dataset.id;
       const row = document.querySelector(`#attachments tr[data-attachment-id="${attachmentId}"]`);
@@ -36,20 +37,21 @@
   function injectDBadges(attachments) {
     for (const { attachmentId, dNumber } of attachments) {
       const actions = document.querySelector(
-        `#attachments tr[data-attachment-id="${attachmentId}"] .attach-actions`
+        `#attachments tr[data-attachment-id="${attachmentId}"] .attach-actions`,
       );
       if (!actions || actions.querySelector(".pt-bz-d-link")) continue;
-      actions.prepend(" | ",
-        window.ptExtLink(phabRevUrl(dNumber), `D${dNumber}`, "pt-bz-d-link"));
+      actions.prepend(" | ", window.ptExtLink(phabRevUrl(dNumber), `D${dNumber}`, "pt-bz-d-link"));
     }
   }
 
   function findInsertionPoint() {
-    return document.querySelector("#top-actions")
-        ?? document.querySelector("#comment-actions")
-        ?? document.querySelector("#comments")
-        ?? document.querySelector(".bz_comment_table")
-        ?? document.querySelector("#comment_table");
+    return (
+      document.querySelector("#top-actions") ??
+      document.querySelector("#comment-actions") ??
+      document.querySelector("#comments") ??
+      document.querySelector(".bz_comment_table") ??
+      document.querySelector("#comment_table")
+    );
   }
 
   function init() {
@@ -59,15 +61,14 @@
     const attachments = getPhabAttachments();
     injectDBadges(attachments);
 
-    const dNums = attachments.map(a => a.dNumber);
+    const dNums = attachments.map((a) => a.dNumber);
     const dCreators = Object.fromEntries(
-      attachments.filter(a => a.creator).map(a => [a.dNumber, a.creator])
+      attachments.filter((a) => a.creator).map((a) => [a.dNumber, a.creator]),
     );
 
     const payload = {
       bugNumber,
-      ...(dNums.length >= 2 ? { dNumbers: dNums } :
-          dNums.length     ? { dNumber: dNums[0] } : {}),
+      ...(dNums.length >= 2 ? { dNumbers: dNums } : dNums.length ? { dNumber: dNums[0] } : {}),
       ...(Object.keys(dCreators).length && { dCreators }),
     };
     initTryPanel(payload, findInsertionPoint, window.ptCreateBugzillaPanel);

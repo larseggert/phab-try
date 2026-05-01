@@ -1,8 +1,8 @@
 "use strict";
 
 const emailInput = document.getElementById("email");
-const saveBtn    = document.getElementById("save");
-const statusEl   = document.getElementById("status");
+const saveBtn = document.getElementById("save");
+const statusEl = document.getElementById("status");
 
 (async () => {
   const { email } = await browser.storage.sync.get("email");
@@ -39,6 +39,9 @@ const STATUS_CLEAR_MS = 2_000;
 
 function show(msg, cls) {
   statusEl.textContent = msg;
-  statusEl.className   = cls;
-  if (cls === "ok") setTimeout(() => { statusEl.textContent = ""; }, STATUS_CLEAR_MS);
+  statusEl.className = cls;
+  if (cls === "ok")
+    setTimeout(() => {
+      statusEl.textContent = "";
+    }, STATUS_CLEAR_MS);
 }

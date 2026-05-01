@@ -5,16 +5,37 @@
    badges mirrored on Bugzilla (panel.css), and the D-link badges below
    all reference these vars instead of repeating literal hex tuples. */
 
-:root, [data-pt-links], .pt-panel, #module-pushes {
-  --pt-blue-bg:   #e6f0fa; --pt-blue-fg:   #2570a3; --pt-blue-bd:   #c8def0;
-  --pt-green-bg:  #e7f4e8; --pt-green-fg:  #1e8449; --pt-green-bd:  #c8e6c9;
-  --pt-violet-bg: #f0e6f9; --pt-violet-fg: #6c3483; --pt-violet-bd: #d5b8e8;
-  --pt-orange-bg: #fdebd0; --pt-orange-fg: #af6a0c; --pt-orange-bd: #f5cba7;
-  --pt-red-bg:    #fadbd8; --pt-red-fg:    #922b21; --pt-red-bd:    #f5b7b1;
-  --pt-pink-bg:   #fadbe7; --pt-pink-fg:   #882950; --pt-pink-bd:   #f5b7c8;
-  --pt-indigo-bg: #e6e8f4; --pt-indigo-fg: #283593; --pt-indigo-bd: #c5cae9;
-  --pt-yellow-bg: #fdf6c2; --pt-yellow-fg: #7a5d00; --pt-yellow-bd: #f0e090;
-  --pt-grey-bg:   #ecedee; --pt-grey-fg:   #555;    --pt-grey-bd:   #c8ccd0;
+:root,
+[data-pt-links],
+.pt-panel,
+#module-pushes {
+  --pt-blue-bg: #e6f0fa;
+  --pt-blue-fg: #2570a3;
+  --pt-blue-bd: #c8def0;
+  --pt-green-bg: #e7f4e8;
+  --pt-green-fg: #1e8449;
+  --pt-green-bd: #c8e6c9;
+  --pt-violet-bg: #f0e6f9;
+  --pt-violet-fg: #6c3483;
+  --pt-violet-bd: #d5b8e8;
+  --pt-orange-bg: #fdebd0;
+  --pt-orange-fg: #af6a0c;
+  --pt-orange-bd: #f5cba7;
+  --pt-red-bg: #fadbd8;
+  --pt-red-fg: #922b21;
+  --pt-red-bd: #f5b7b1;
+  --pt-pink-bg: #fadbe7;
+  --pt-pink-fg: #882950;
+  --pt-pink-bd: #f5b7c8;
+  --pt-indigo-bg: #e6e8f4;
+  --pt-indigo-fg: #283593;
+  --pt-indigo-bd: #c5cae9;
+  --pt-yellow-bg: #fdf6c2;
+  --pt-yellow-fg: #7a5d00;
+  --pt-yellow-bd: #f0e090;
+  --pt-grey-bg: #ecedee;
+  --pt-grey-fg: #555;
+  --pt-grey-bd: #c8ccd0;
 }
 
 /* "Small badge" sizing baseline shared by repo pills (panel.css), the
@@ -33,34 +54,50 @@
 /* D-revision badge — yellow base distinct from every repo-pill hue, so
    the row reads "[repo] hash D D D" without colour collisions. Status
    modifiers below tint over the base: green = landed, red = abandoned. */
+
+/* Trailing right-margin (not leading) so the inter-badge gap goes
+   *after* each badge — a leading margin would render as indentation on
+   every wrapped line. The 1px top/bottom margin gives a little vertical
+   breathing room when badges wrap onto multiple lines. */
 .pt-push-dlink {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  margin: 1px 4px 1px 0;
   border: 1px solid var(--pt-yellow-bd);
   background: var(--pt-yellow-bg);
   color: var(--pt-yellow-fg);
   text-decoration: none;
   vertical-align: middle;
 }
-/* Trailing right-margin (not leading) so the inter-badge gap goes
-   *after* each badge — a leading margin would render as indentation on
-   every wrapped line. The 1px top/bottom margin gives a little vertical
-   breathing room when badges wrap onto multiple lines. */
-.pt-push-dlink { margin: 1px 4px 1px 0; }
-.pt-push-dlink:last-child { margin-right: 0; }
-.pt-push-dlink:hover { filter: brightness(0.96); text-decoration: none; }
+
+.pt-push-dlink:last-child {
+  margin-right: 0;
+}
+
+.pt-push-dlink:hover {
+  filter: brightness(0.96);
+  text-decoration: none;
+}
 
 .pt-push-dlink-landed {
-  background: var(--pt-green-bg); color: var(--pt-green-fg); border-color: var(--pt-green-bd);
+  background: var(--pt-green-bg);
+  color: var(--pt-green-fg);
+  border-color: var(--pt-green-bd);
 }
+
 .pt-push-dlink-abandoned {
-  background: var(--pt-red-bg); color: var(--pt-red-fg); border-color: var(--pt-red-bd);
+  background: var(--pt-red-bg);
+  color: var(--pt-red-fg);
+  border-color: var(--pt-red-bd);
 }
 
 /* Strikethrough indicator (abandoned D, closed-no-land bug, backed-out
    push hash). */
-.pt-strike { text-decoration: line-through; opacity: 0.7; }
+.pt-strike {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
 
 /* Inline-SVG icon trailing a badge — sized via attrs in lib/icons.js;
    here we just colour and align it. */
@@ -68,7 +105,7 @@
   display: inline-block;
   height: 0.9em;
   width: auto;
-  fill: currentColor;
+  fill: currentcolor;
   opacity: 0.7;
   vertical-align: -0.1em;
   margin-left: 2px;

@@ -47,9 +47,8 @@ function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) 
           // away the rendered rows; route them to a non-destructive status
           // line instead.
           if (!firstResolved) ctrl.setLoading(message, done, total);
-          else                ctrl.setStatus?.(message, done, total);
-        }
-        else if (type === "result") {
+          else ctrl.setStatus?.(message, done, total);
+        } else if (type === "result") {
           const payload = { pushes: pushes ?? [], errors: errors ?? [], dInfos: dInfos ?? {} };
           if (!firstResolved) {
             firstResolved = true;
@@ -59,12 +58,10 @@ function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) 
             window.ptApplyResult(ctrl, payload);
             if (!silent) ctrl.setStatus?.(null);
           }
-        }
-        else if (type === "complete") {
+        } else if (type === "complete") {
           if (!silent) ctrl.setStatus?.(null);
           port.disconnect();
-        }
-        else if (type === "error") {
+        } else if (type === "error") {
           if (!firstResolved) reject(new Error(message));
           port.disconnect();
         }
@@ -77,7 +74,7 @@ function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) 
   }
 
   let stopRefresh = null;
-  let generation  = 0;
+  let generation = 0;
 
   function reload() {
     stopRefresh?.();
@@ -95,7 +92,7 @@ function initTryPanel(payload, findAnchor, panelFactory = window.ptCreatePanel) 
     const myGen = generation;
     try {
       const result = await fetchPushes(payload, force);
-      if (myGen !== generation) return;  // superseded by a later reload()
+      if (myGen !== generation) return; // superseded by a later reload()
       window.ptApplyResult(ctrl, result);
       if (result.pushes.some(window.ptIsRunning) && !stopRefresh) {
         stopRefresh = window.ptStartAutoRefresh(ctrl.el, payload, fetchPushes);

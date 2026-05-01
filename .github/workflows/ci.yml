@@ -12,6 +12,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  zizmor:
+    name: Security scan (zizmor)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF results to the GitHub Security tab
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@b1d7e1fb5de872772f31590499237e7cce841e8e # v0.5.3
+
   # Each check runs as its own parallel job (isolated failure UI in
   # GitHub) but shares the same setup. fail-fast:false so one failing
   # check doesn't cancel the others.
@@ -24,31 +36,37 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: Format
           - name: Lint
-            run: npm run lint
           - name: Test
-            run: npm run test:coverage
           - name: Build XPI
-            # Catches manifest / file-path issues that web-ext lint
-            # doesn't flag (missing files, mis-cased paths, etc.).
-            run: npm run build
+          - name: Lint CSS
           - name: Generated files up to date
-            # Re-run the generator and fail if anything changed —
-            # catches drift after a fontawesome-free dep bump that
-            # didn't regenerate lib/fa-icons.js (or stale icon PNGs).
-            run: |
-              npm run generate-icons
-              git diff --exit-code
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
           cache: npm
 
       - run: npm ci
 
-      - run: ${{ matrix.run }}
+      # Dispatch by name to hardcoded commands — avoids the template-injection
+      # risk of `run: ${{ matrix.name }}` which expands directly into YAML.
+      - env:
+          CHECK: ${{ matrix.name }}
+        run: |
+          case "$CHECK" in
+            "Format")                   npm run format:check;;
+            "Lint")                     npm run lint;;
+            "Lint CSS")                 npm run lint:css;;
+            "Test")                     npm run test:coverage;;
+            "Build XPI")                npm run build;;
+            "Generated files up to date")
+              npm run generate-icons
+              git diff --exit-code
+              ;;
+          esac
