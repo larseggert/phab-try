@@ -31,9 +31,17 @@ for (const size of [48, 96, 128]) {
 
 // --- 2. FontAwesome Free path data → lib/fa-icons.js -----------------------
 // Each entry: { viewBox, path } — extracted verbatim from FA Free Solid.
-// Bumping the FA dep regenerates this file, no manual copy-paste.
+// Hardcoded map of icon name → literal SVG filename. Each path is a
+// string literal so there is no dynamic path construction and no path-
+// traversal risk. Add new icons here; bump the FA dep and re-run to
+// regenerate lib/fa-icons.js with the updated paths.
 const FA_DIR = join(dir, "node_modules/@fortawesome/fontawesome-free/svgs/solid");
-const FA_NAMES = ["plane-arrival", "fast-backward", "clone"];
+const FA_ICON_FILES = {
+  "plane-arrival": join(FA_DIR, "plane-arrival.svg"),
+  "fast-backward": join(FA_DIR, "fast-backward.svg"),
+  clone: join(FA_DIR, "clone.svg"),
+  "circle-check": join(FA_DIR, "circle-check.svg"),
+};
 
 // SVG path commands + numeric literals only — sanity check that an FA dep
 // bump hasn't shipped a `d="…"` attribute containing anything we'd splice
@@ -49,10 +57,10 @@ const extractSvg = (src) => {
   return { viewBox, path };
 };
 
-const entries = FA_NAMES.map((name) => {
-  const svgSrc = readFileSync(join(FA_DIR, `${name}.svg`), "utf8");
-  return [name, extractSvg(svgSrc)];
-});
+const entries = Object.entries(FA_ICON_FILES).map(([name, filepath]) => [
+  name,
+  extractSvg(readFileSync(filepath, "utf8")),
+]);
 
 const body = entries
   .map(

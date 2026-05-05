@@ -212,6 +212,11 @@
       a.append(" ", statusIcon("fast-backward", "Backed out"));
     }
     td.append(a);
+    if (push.isLatestDiff)
+      td.append(
+        " ",
+        nest(el("span", "pt-latest-diff-icon"), statusIcon("circle-check", "Latest diff")),
+      );
     return td;
   }
 
@@ -301,8 +306,27 @@
       ? `https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/${status}`
       : CORS_ERRORS_URL;
 
-  function buildWarningEntry({ url, status }) {
+  // Fastly challenge: the server returned an HTML challenge page instead of
+  // JSON because the browser session cookie is missing or expired.
+  const HG_EDGE_AUTH = "https://hg-edge.mozilla.org/try/";
+  const isFastlyChallenge = ({ message }) => message?.startsWith("Fastly challenge:");
+
+  function buildWarningEntry({ url, status, message }) {
     const li = el("li", "pt-warning-entry");
+
+    if (isFastlyChallenge({ message })) {
+      return nest(
+        li,
+        el("span", "pt-warning-status", "Fastly challenge"),
+        nest(
+          el("span", "pt-warning-url"),
+          "Open ",
+          extLink(HG_EDGE_AUTH, HG_EDGE_AUTH),
+          " in Firefox to authorize hg-edge access.",
+        ),
+      );
+    }
+
     // HTTP 200 here means the server replied but the browser refused the
     // response due to CORS — the wire-level 200 was recorded by webRequest
     // before the CORS check ran. Label it the same as a pure network error.
@@ -331,24 +355,26 @@
     if (!errors?.length) return null;
     const wrap = el("div", "pt-warning");
 
+    const hasFastlyChallenge = errors.some(isFastlyChallenge);
+
     const list = el("ul", "pt-warning-list");
     for (const e of errors) list.append(buildWarningEntry(e));
 
     const details = el("div", "pt-warning-details");
-    details.hidden = true;
+    details.hidden = !hasFastlyChallenge; // auto-expand when authorization needed
     details.append(list);
 
     const total = errors.length;
     const ws = total === 1 ? "" : "es";
     const header = el("div", "pt-warning-summary");
-    const toggle = withAction(el("a", null, "Details"), () => {
+    const toggle = withAction(el("a", null, details.hidden ? "Details" : "Hide"), () => {
       details.hidden = !details.hidden;
+      toggle.textContent = details.hidden ? "Details" : "Hide";
     });
-    header.append(
-      faIcon("fa-exclamation-triangle"),
-      ` Some pushes may be missing — ${total} fetch${ws} failed. `,
-      toggle,
-    );
+    const summaryText = hasFastlyChallenge
+      ? ` hg-edge access needs authorization — ${total} fetch${ws} failed. `
+      : ` Some pushes may be missing — ${total} fetch${ws} failed. `;
+    header.append(faIcon("fa-exclamation-triangle"), summaryText, toggle);
 
     wrap.append(header, details);
     return wrap;
