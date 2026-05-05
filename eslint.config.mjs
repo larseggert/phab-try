@@ -63,6 +63,7 @@ export default [
         treeherderRecentUrl: "readonly",
         treeherderAuthorHistoryUrl: "readonly",
         hgRevUrl: "readonly",
+        hgShortLogBatchUrl: "readonly",
         phabRevUrl: "readonly",
         bugAttachmentsUrl: "readonly",
         pushCacheKey: "readonly",

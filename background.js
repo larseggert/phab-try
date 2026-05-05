@@ -66,10 +66,9 @@ const RECENT_PUSHES_COUNT = 500; // recent-pushes scan window per repo
 const AUTHOR_HISTORY_FRESH_S = 120; // re-fetch threshold for author history
 const ONE_HOUR_S = 3600;
 const ENRICH_CONCURRENCY = 5;
-// Walk concurrency reduced from 5 → 2 to avoid the Fastly anti-bot burst on
-// hg-edge. Combined with the author filter on walk candidates, a typical
-// first-load now incurs only single-digit hg-edge requests.
-const WALK_CONCURRENCY = 2;
+// Matches the json-shortlog server limit of 20 entries per response —
+// raising this above 20 would silently drop candidates beyond the first
+// 20 since the batch returns at most 20 entries regardless of input size.
 const MAX_WALK_CANDIDATES = 20;
 const KEEPALIVE_PERIOD_MIN = 0.4;
 
@@ -85,7 +84,9 @@ const KEEPALIVE_PERIOD_MIN = 0.4;
 // bugAttachmentsUrl), the cache-key helpers (pushCacheKey,
 // historyCacheKey), and FetchErrorTracker.
 
-const BUG_URL_RE = new RegExp(`${escapeHostName(BUGZILLA_HOST)}\\/show_bug\\.cgi\\?id=(\\d+)`);
+// Hardcoded literal avoids new RegExp() with a dynamic argument.
+// If BUGZILLA_HOST changes, update the literal to match.
+const BUG_URL_RE = /bugzilla\.mozilla\.org\/show_bug\.cgi\?id=(\d+)/;
 
 // `safely` lives in lib/pure.js — it's a global here.
 
@@ -139,6 +140,7 @@ if (browser.webRequest?.onHeadersReceived) {
     const record = (d) => recordWebRequest(d.url, d.statusCode);
     for (const event of ["onHeadersReceived", "onCompleted", "onErrorOccurred"])
       browser.webRequest[event]?.addListener(record, FILTER);
+    console.log("[phab-try] ready");
   } catch (e) {
     console.warn("[phab-try] webRequest registration failed:", e.message);
   }
@@ -355,27 +357,40 @@ async function getDCreator(d, bugHint, errors) {
   });
 }
 
-// /json-rev/{hash} returns the revision's metadata including `parents[]`.
-// Only used for try (mach-try-auto parent walk); other repos always have
-// the canonical Differential Revision URL in their commits.
+const toHgValue = ({ desc, parents }) => ({ desc: desc ?? "", parents: parents ?? [] });
+
+// Fetch hg revision data for multiple hashes via json-shortlog (batch).
+// Passing an empty array is safe — returns {} immediately.
+async function fetchHgRevsBatch(hashes, errors) {
+  await loadMemCache();
+  const uncached = hashes.filter((h) => !hgCache.has(h));
+  if (uncached.length) {
+    await tracked(errors, async () => {
+      const r = await fetchOk(hgShortLogBatchUrl(uncached));
+      ((await r.json())?.entries ?? [])
+        .filter(({ node }) => node)
+        .forEach((e) => setCache(hgCache, PFX.hg, e.node, toHgValue(e)));
+    });
+  }
+  return Object.fromEntries(hashes.map((h) => [h, hgCache.get(h) ?? null]));
+}
+
+// Single-hash fallback used outside the walk (resolveLinks).
 async function getHgRev(rev, errors) {
   await loadMemCache();
   if (hgCache.has(rev)) return hgCache.get(rev);
   return withInFlight(`hg:${rev}`, async () => {
     const data = await tracked(errors, () => fetchJson(hgRevUrl(rev)));
     if (!data) return null;
-    const value = { desc: data.desc ?? "", parents: data.parents ?? [] };
+    const value = toHgValue(data);
     setCache(hgCache, PFX.hg, rev, value);
     return value;
   });
 }
 
 async function getHgParentDesc(rev, errors) {
-  const meta = await getHgRev(rev, errors);
-  const parentHash = meta?.parents?.[0];
-  if (!parentHash) return null;
-  const parent = await getHgRev(parentHash, errors);
-  return parent?.desc ?? null;
+  const parentHash = (await getHgRev(rev, errors))?.parents?.[0];
+  return parentHash ? ((await getHgRev(parentHash, errors))?.desc ?? null) : null;
 }
 
 async function getPushObject(repo, rev, errors) {
@@ -484,30 +499,41 @@ async function enrichPush(push, repo, label, errors, backoutSets) {
 
 // Walks parent commits for try candidates that have no D-URL anywhere in
 // their own commits (mach-try-auto pattern) and keeps those whose
-// parentDesc satisfies `predicate`. Caller pre-filters candidates by author
-// to keep N small; the cap below is just a defensive ceiling.
+// parentDesc satisfies `predicate`. Uses two batched hg requests instead
+// of one per candidate, as suggested by Gijs Kruitbosch.
 //
-// `onMatch(push)` is invoked the moment a candidate's parent matches, so
-// the search can emit incremental updates while remaining walks are still
-// in flight. The function still returns the full list of matches once
-// every candidate has been checked.
+// `onMatch(push)` is invoked per match so the search can emit incremental
+// updates while enrichment is still in flight.
 async function walkParentDescs(candidates, predicate, errors, reportProgress, onMatch) {
   if (!candidates.length) return [];
   const slice = candidates.toSorted(byPushTimestampDesc).slice(0, MAX_WALK_CANDIDATES);
-  reportProgress?.(`Checking parent commits (0/${slice.length})…`, 0, slice.length);
-  let done = 0;
-  return mapCapped(
-    slice,
-    async (p) => {
-      const desc = await getHgParentDesc(p.revision, errors);
-      if (!desc || !predicate(desc)) return null;
-      if (onMatch) await safely(() => onMatch(p));
-      return p;
-    },
-    WALK_CONCURRENCY,
-    () =>
-      reportProgress?.(`Checking parent commits (${++done}/${slice.length})…`, done, slice.length),
+  reportProgress?.(`Checking parent commits…`, 0, slice.length);
+
+  // Batch 1 — fetch all candidates to get their parent hashes.
+  const revData = await fetchHgRevsBatch(
+    slice.map((p) => p.revision),
+    errors,
   );
+  const parentHashByPush = new Map(
+    slice.map((p) => [p, revData[p.revision]?.parents?.[0] ?? null]),
+  );
+
+  // Batch 2 — fetch all unique parent hashes to get their descriptions.
+  const parentHashes = [...new Set([...parentHashByPush.values()].filter(Boolean))];
+  const parentData = await fetchHgRevsBatch(parentHashes, errors);
+
+  reportProgress?.(`Checking parent commits…`, slice.length, slice.length);
+
+  // Emit matches — still called individually so the panel renders
+  // incrementally as each push is enriched.
+  const matches = [];
+  for (const p of slice) {
+    const desc = parentData[parentHashByPush.get(p)]?.desc;
+    if (!desc || !predicate(desc)) continue;
+    if (onMatch) await safely(() => onMatch(p));
+    matches.push(p);
+  }
+  return matches;
 }
 
 // --- Per-repo search primitives ---
@@ -667,9 +693,9 @@ async function runMultiRepoSearch({ errors, creators, matchText, labelFor, repor
   const candidates = tryWalkCandidates(tryEntry?.all ?? [], creators, directTryIds);
   if (!candidates.length) return;
 
-  // Concurrent walks (WALK_CONCURRENCY > 1) can resolve in any order;
-  // each emit snapshots the current `combined` array which is always
-  // sorted, so the panel observes a monotonically growing set of pushes.
+  // onMatch is called per match after the two-batch hg walk completes.
+  // Each emit snapshots `combined` (always sorted) so the panel observes
+  // a monotonically growing set of pushes.
   const combined = [...enrichedDirect];
   const onMatch = async (push) => {
     const label = labelFor ? await labelFor(push, "try") : {};
