@@ -123,6 +123,13 @@ const recordWebRequest = (url, status) => {
 // onHeadersReceived fires before the browser's CORS check rejects a
 // cross-origin response — onCompleted does not fire when CORS blocks the
 // response (onErrorOccurred fires instead, with no usable statusCode).
+// Restricted to the json-shortlog endpoint (the only hg path the extension
+// fetches) so the ACAO fix doesn't apply to unrelated hg-edge URLs.
+const HG_ORIGIN_FIX_URLS = [
+  "https://hg-edge.mozilla.org/try/json-shortlog*",
+  "https://hg.mozilla.org/try/json-shortlog*",
+];
+
 // Listening here ensures we capture the real HTTP status (e.g. 406) even
 // when fetch() will subsequently reject with a generic NetworkError.
 const FILTER = {
@@ -151,6 +158,33 @@ if (browser.webRequest?.onHeadersReceived) {
   );
 }
 
+// Firefox MV3 background pages don't bypass CORS via host_permissions (unlike
+// MV2 background pages). hg-edge returns ACAO: * but the browser's CORS check
+// uses the extension's internal principal (moz-extension://UUID), and ACAO: *
+// does not match a credentialed request (credentials:'include' is required to
+// send the Fastly challenge cookie). Fix both: rewrite ACAO to the exact UUID
+// origin and add ACAC: true so the credentialed CORS check passes.
+// browser.runtime.getURL gives the UUID form; browser.runtime.id gives the
+// string ID (phab-try@lars.eggert.org) which is NOT what the browser uses.
+if (browser.webRequest?.onHeadersReceived) {
+  const extOrigin = new URL(browser.runtime.getURL("")).origin;
+  browser.webRequest.onHeadersReceived.addListener(
+    (details) => {
+      if (details.tabId !== -1) return; // only background service worker responses
+      const headers = details.responseHeaders ?? [];
+      const acao = headers.find((h) => h.name.toLowerCase() === "access-control-allow-origin");
+      if (acao) {
+        acao.value = extOrigin;
+        if (!headers.some((h) => h.name.toLowerCase() === "access-control-allow-credentials"))
+          headers.push({ name: "Access-Control-Allow-Credentials", value: "true" });
+        return { responseHeaders: headers };
+      }
+    },
+    { urls: HG_ORIGIN_FIX_URLS },
+    ["blocking", "responseHeaders"],
+  );
+}
+
 const consumeRecordedStatus = (url) => {
   const s = webRequestStatus.get(url) ?? null;
   webRequestStatus.delete(url);
@@ -162,10 +196,10 @@ const consumeRecordedStatus = (url) => {
 // above record the wire-level status so we can report a real HTTP code
 // (e.g. 406 from hg-edge anti-bot) when fetch() rejects with a generic
 // CORS error before exposing r.status.
-async function fetchOk(url) {
+async function fetchOk(url, init = {}) {
   let r;
   try {
-    r = await fetch(url);
+    r = await fetch(url, init);
   } catch (e) {
     const status = consumeRecordedStatus(url);
     throw new FetchError(url, status, e.message);
@@ -177,6 +211,29 @@ async function fetchOk(url) {
 
 async function fetchJson(url) {
   const r = await fetchOk(url);
+  try {
+    return await r.json();
+  } catch (e) {
+    throw new FetchError(url, r.status, `Invalid JSON: ${e.message}`);
+  }
+}
+
+// hg-edge.mozilla.org sits behind Fastly bot detection: first browser access
+// triggers a JS challenge that sets a session cookie; subsequent requests
+// succeed. The extension background can't solve the challenge itself, but if
+// the user has visited hg-edge in their browser, the cookie is in the shared
+// profile. Using credentials:'include' sends that cookie so Fastly serves
+// JSON instead of the challenge page. The onHeadersReceived blocking listener
+// above rewrites the response ACAO header to the extension's UUID origin
+// (required because credentialed CORS rejects ACAO: *).
+//
+// If the cookie is missing (or expired), Fastly serves an HTML challenge page
+// instead of JSON. We detect this via Content-Type and throw a specific error
+// so the panel can prompt the user to visit hg-edge in Firefox.
+async function fetchHgJson(url) {
+  const r = await fetchOk(url, { credentials: "include" });
+  if ((r.headers.get("content-type") ?? "").includes("text/html"))
+    throw new FetchError(url, r.status, "Fastly challenge: visit hg-edge.mozilla.org/try/");
   try {
     return await r.json();
   } catch (e) {
@@ -365,26 +422,22 @@ async function fetchHgRevsBatch(hashes, errors) {
   await loadMemCache();
   const uncached = hashes.filter((h) => !hgCache.has(h));
   if (uncached.length) {
-    await tracked(errors, async () => {
-      const r = await fetchOk(hgShortLogBatchUrl(uncached));
-      ((await r.json())?.entries ?? [])
-        .filter(({ node }) => node)
-        .forEach((e) => setCache(hgCache, PFX.hg, e.node, toHgValue(e)));
-    });
+    const batchData = await tracked(errors, () => fetchHgJson(hgShortLogBatchUrl(uncached)));
+    (batchData?.entries ?? [])
+      .filter(({ node }) => node)
+      .forEach((e) => setCache(hgCache, PFX.hg, e.node, toHgValue(e)));
   }
   return Object.fromEntries(hashes.map((h) => [h, hgCache.get(h) ?? null]));
 }
 
-// Single-hash fallback used outside the walk (resolveLinks).
+// Single-hash lookup via json-shortlog; used outside the walk (resolveLinks,
+// computeStackDNums). withInFlight deduplicates concurrent calls for the
+// same hash across parallel enrichPush invocations. fetchHgRevsBatch handles
+// cache loading and hit-checking, so no double loadMemCache here.
 async function getHgRev(rev, errors) {
-  await loadMemCache();
-  if (hgCache.has(rev)) return hgCache.get(rev);
   return withInFlight(`hg:${rev}`, async () => {
-    const data = await tracked(errors, () => fetchJson(hgRevUrl(rev)));
-    if (!data) return null;
-    const value = toHgValue(data);
-    setCache(hgCache, PFX.hg, rev, value);
-    return value;
+    const result = await fetchHgRevsBatch([rev], errors);
+    return result[rev];
   });
 }
 
@@ -478,11 +531,23 @@ async function computeStackDNums(push, repo, errors) {
   return desc ? extractDNums(desc) : [];
 }
 
-async function enrichPush(push, repo, label, errors, backoutSets) {
+async function enrichPush(push, repo, label, errors, backoutSets, latestDiffInfo) {
   const [health, stackDNums] = await Promise.all([
     getPushHealth(repo, push.revision, errors),
     computeStackDNums(push, repo, errors),
   ]);
+  let isLatestDiff = false;
+  if (latestDiffInfo) {
+    const { diffPHID, baseHash } = latestDiffInfo;
+    // "Run on try": commit message contains `Differential Diff: PHID-DIFF-xxx`
+    if (diffPHID) isLatestDiff = pushComments(push).includes(diffPHID);
+    // mach try auto: try push → parent (patch commit) → grandparent === diff base
+    // Both levels are in hgCache after the walk so no extra fetches needed.
+    if (!isLatestDiff && baseHash && repo === "try") {
+      const grandparentHash = hgCache.get(hgCache.get(push.revision)?.parents?.[0])?.parents?.[0];
+      isLatestDiff = grandparentHash?.startsWith(baseHash) ?? false;
+    }
+  }
   return {
     id: push.id,
     repo,
@@ -493,8 +558,47 @@ async function enrichPush(push, repo, label, errors, backoutSets) {
     health,
     stackDNums,
     backedOut: isBackedOut(backoutSets?.[repo], push.revision),
+    isLatestDiff,
     ...label,
   };
+}
+
+// Fetch the PHID and Mercurial base hash of the currently-active diff for a
+// D-revision using the Conduit API (session cookie + page CSRF token).
+// Returns { diffPHID, baseHash } or null when not logged in or on failure.
+//
+// diffPHID — matches `Differential Diff: PHID-DIFF-xxx` in "Run on try"
+//            commit messages; identifies the try push directly.
+// baseHash — the parent of the patch commit recorded in the diff; for
+//            mach-try-auto pushes we verify:
+//            hgCache[push.parent]?.parents?.[0] === baseHash
+//            (i.e. the try push's grandparent = diff's base commit).
+async function getCurrentDiffInfo(dNumber, phabCsrf) {
+  if (!phabCsrf) return null;
+
+  // Local helper — one Conduit POST with auth headers baked in.
+  const conduit = (method, params) =>
+    safely(() =>
+      fetch(`${PHAB_BASE}/api/${method}`, {
+        method: "POST",
+        body: new URLSearchParams({ ...params, __csrf__: phabCsrf, __form__: "1" }),
+        credentials: "include",
+      }).then((r) => r.json()),
+    );
+
+  const revData = await conduit("differential.revision.search", {
+    "constraints[ids][0]": dNumber,
+  });
+  const diffPHID = revData?.result?.data?.[0]?.fields?.diffPHID ?? null;
+  if (!diffPHID) return null;
+
+  const diffData = await conduit("differential.diff.search", {
+    "constraints[phids][0]": diffPHID,
+  });
+  const refs = diffData?.result?.data?.[0]?.fields?.refs ?? [];
+  const baseHash = refs.find((r) => r.type === "base")?.identifier?.toLowerCase() ?? null;
+
+  return { diffPHID, baseHash };
 }
 
 // Walks parent commits for try candidates that have no D-URL anywhere in
@@ -583,6 +687,7 @@ async function enrichEntries(
   errors,
   reportProgress,
   backoutSets,
+  latestDiffInfo = null,
   label = "Loading health",
 ) {
   if (!entries.length) return [];
@@ -590,7 +695,8 @@ async function enrichEntries(
   let done = 0;
   return mapCapped(
     entries,
-    ({ _repo, _push, _label }) => enrichPush(_push, _repo, _label ?? {}, errors, backoutSets),
+    ({ _repo, _push, _label }) =>
+      enrichPush(_push, _repo, _label ?? {}, errors, backoutSets, latestDiffInfo),
     ENRICH_CONCURRENCY,
     () => reportProgress?.(`${label} (${++done}/${entries.length})…`, done, entries.length),
   );
@@ -648,7 +754,15 @@ async function mergeDInfos(dInfos, pushes, errors) {
 //                    (Bugzilla path uses this to pick which of the
 //                    bug's Ds each push covers; Phab path passes none)
 //   - reportProgress / emit: progress + result callbacks
-async function runMultiRepoSearch({ errors, creators, matchText, labelFor, reportProgress, emit }) {
+async function runMultiRepoSearch({
+  errors,
+  creators,
+  matchText,
+  labelFor,
+  latestDiffInfo = null,
+  reportProgress,
+  emit,
+}) {
   const trackedRepos = await getTrackedRepos();
   // Phase 1 — every Treeherder push list, fan out in parallel.
   reportProgress?.(`Searching ${trackedRepos.length} repos…`, 0, trackedRepos.length);
@@ -681,7 +795,13 @@ async function runMultiRepoSearch({ errors, creators, matchText, labelFor, repor
         })),
       )
     : direct;
-  const enrichedDirect = await enrichEntries(labeled, errors, reportProgress, backoutSets);
+  const enrichedDirect = await enrichEntries(
+    labeled,
+    errors,
+    reportProgress,
+    backoutSets,
+    latestDiffInfo,
+  );
   const dInfos = await mergeDInfos({}, enrichedDirect, errors);
   emit({ pushes: enrichedDirect, errors: errors.toJSON(), dInfos });
 
@@ -699,7 +819,7 @@ async function runMultiRepoSearch({ errors, creators, matchText, labelFor, repor
   const combined = [...enrichedDirect];
   const onMatch = async (push) => {
     const label = labelFor ? await labelFor(push, "try") : {};
-    const enriched = await enrichPush(push, "try", label, errors, backoutSets);
+    const enriched = await enrichPush(push, "try", label, errors, backoutSets, latestDiffInfo);
     if (!enriched) return;
     combined.push(enriched);
     combined.sort(byPushTimestampDesc);
@@ -714,16 +834,20 @@ async function runMultiRepoSearch({ errors, creators, matchText, labelFor, repor
 }
 
 // Phab D-page algorithm (DATA.md §"Phabricator D-page").
-async function findPushesForD(dNumber, bugHint, reportProgress, emit) {
+async function findPushesForD(dNumber, bugHint, phabCsrf, reportProgress, emit) {
   const errors = new FetchErrorTracker();
   reportProgress?.("Resolving patch creator…");
-  const creator = await getDCreator(dNumber, bugHint, errors);
+  const [creator, latestDiffInfo] = await Promise.all([
+    getDCreator(dNumber, bugHint, errors),
+    getCurrentDiffInfo(dNumber, phabCsrf),
+  ]);
   return runMultiRepoSearch({
     errors,
     creators: creator ? [creator] : [],
     // Match by D only — bug-N would surface sibling-D pushes for the same bug.
     matchText: (text) => extractDNums(text).includes(dNumber),
     labelFor: null,
+    latestDiffInfo,
     reportProgress,
     emit,
   });
@@ -821,7 +945,7 @@ async function resolveLinks(revision) {
 // --- Message routing ---
 
 async function handleGetPushes(msg, reportProgress, emit) {
-  const { dNumber, dNumbers, bugNumber, dCreators, revisionTitle } = msg;
+  const { dNumber, dNumbers, bugNumber, dCreators, revisionTitle, phabCsrf } = msg;
 
   // Cache priming from DOM data (URL → DOM tier of DATA.md priority order).
   if (revisionTitle && dNumber) primeDTitle(dNumber, revisionTitle);
@@ -833,7 +957,7 @@ async function handleGetPushes(msg, reportProgress, emit) {
     return findPushesForBug(bugNumber, dNumbers, reportProgress, emit);
 
   const d = dNumber ?? dNumbers?.[0];
-  if (d) return findPushesForD(d, bugNumber, reportProgress, emit);
+  if (d) return findPushesForD(d, bugNumber, phabCsrf, reportProgress, emit);
 
   // Bug page with no Phabricator attachments: bug-N scan over recent
   // pushes across all tracked repos. No author history (no creators), no

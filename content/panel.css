@@ -44,6 +44,17 @@
   font-family: monospace;
 }
 
+/* Green "tested latest diff" circle-check icon. The SVG fills from
+   currentColor; the wrapper sets the colour and cancels the default
+   opacity so the icon appears at full saturation. */
+.pt-latest-diff-icon {
+  color: var(--pt-green-fg);
+}
+
+.pt-latest-diff-icon .pt-status-icon {
+  opacity: 1;
+}
+
 .pt-push-covered {
   font-size: 0.9em;
 }

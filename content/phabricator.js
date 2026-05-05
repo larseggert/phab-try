@@ -45,8 +45,18 @@
     if (!dNumber) return;
     const revisionTitle = stripPhabSuffix(document.title);
     const bugNumber = getBugNumber();
+    // The CSRF token lets the background make an authenticated Conduit call
+    // (using the user's existing Phab session cookie) to discover the current
+    // diff's PHID — which we then match against PHID-DIFF-xxx in push commit
+    // messages to identify which pushes tested the latest uploaded diff.
+    const phabCsrf = document.querySelector('input[name="__csrf__"]')?.value ?? null;
     initTryPanel(
-      { dNumber, ...(bugNumber && { bugNumber }), ...(revisionTitle && { revisionTitle }) },
+      {
+        dNumber,
+        ...(bugNumber && { bugNumber }),
+        ...(revisionTitle && { revisionTitle }),
+        ...(phabCsrf && { phabCsrf }),
+      },
       findInsertionPoint,
     );
   }
