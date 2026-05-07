@@ -98,7 +98,12 @@ window.ptCreateBugzillaPanel = (function () {
       reattachOverlays();
     };
     const setLoading = (msg, done, total) =>
-      showMsg(el("p", "pt-bz-msg pt-bz-msg-loading", msg), progressBar(done, total));
+      showMsg(
+        nest(
+          el("div", "pt-bz-msg pt-bz-msg-loading pt-status-row pt-bz-status", msg),
+          progressBar(done, total),
+        ),
+      );
     const setError = (msg) =>
       showMsg(
         nest(

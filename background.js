@@ -538,15 +538,20 @@ async function enrichPush(push, repo, label, errors, backoutSets, latestDiffInfo
   ]);
   let isLatestDiff = false;
   if (latestDiffInfo) {
-    const { diffPHID, baseHash } = latestDiffInfo;
+    const { diffPHID, baseHash, dateCreated } = latestDiffInfo;
     // "Run on try": commit message contains `Differential Diff: PHID-DIFF-xxx`
     if (diffPHID) isLatestDiff = pushComments(push).includes(diffPHID);
-    // mach try auto: try push → parent (patch commit) → grandparent === diff base
+    // mach try auto (hg): try push → parent (patch commit) → grandparent === diff base
     // Both levels are in hgCache after the walk so no extra fetches needed.
     if (!isLatestDiff && baseHash && repo === "try") {
       const grandparentHash = hgCache.get(hgCache.get(push.revision)?.parents?.[0])?.parents?.[0];
       isLatestDiff = grandparentHash?.startsWith(baseHash) ?? false;
     }
+    // Fallback for git-cinnabar or any push whose hash can't be compared: if the
+    // push timestamp is at or after the current diff was uploaded, it plausibly
+    // tested / landed that diff. This handles both landing repos and git-cinnabar
+    // try pushes where baseHash is a git hash we can't match against hg parents.
+    if (!isLatestDiff && dateCreated != null) isLatestDiff = push.push_timestamp >= dateCreated;
   }
   return {
     id: push.id,
@@ -595,10 +600,12 @@ async function getCurrentDiffInfo(dNumber, phabCsrf) {
   const diffData = await conduit("differential.diff.search", {
     "constraints[phids][0]": diffPHID,
   });
-  const refs = diffData?.result?.data?.[0]?.fields?.refs ?? [];
-  const baseHash = refs.find((r) => r.type === "base")?.identifier?.toLowerCase() ?? null;
+  const fields = diffData?.result?.data?.[0]?.fields ?? {};
+  const baseHash =
+    (fields.refs ?? []).find((r) => r.type === "base")?.identifier?.toLowerCase() ?? null;
+  const dateCreated = fields.dateCreated ?? null; // Unix seconds; used to filter by "after this diff"
 
-  return { diffPHID, baseHash };
+  return { diffPHID, baseHash, dateCreated };
 }
 
 // Walks parent commits for try candidates that have no D-URL anywhere in
