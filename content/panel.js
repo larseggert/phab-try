@@ -442,8 +442,12 @@
 
     function setLoading(message, done, total) {
       resetTitle();
-      const row = stateRow(list, message, "greytext pt-state-loading");
-      row.append(progressBar(done, total));
+      list.replaceChildren(
+        nest(
+          el("div", "greytext pt-state-loading pt-status-row", message),
+          progressBar(done, total),
+        ),
+      );
     }
 
     function setError(message) {
